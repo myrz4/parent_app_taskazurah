@@ -1,0 +1,56 @@
+name: parent_app
+description: "Taska Zurah Parent App – Flutter + Firebase"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.2.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ───── UI & Animation Essentials ─────
+  cupertino_icons: ^1.0.8
+  animate_do: ^4.2.0
+  flutter_animate: ^4.5.0
+  google_fonts: ^6.1.0
+
+  # ───── Firebase Core Modules ─────
+  firebase_core: ^4.2.0
+  cloud_firestore: ^6.0.3
+  firebase_auth: ^6.1.1
+  firebase_storage: ^13.0.3
+
+  # ───── Notifications & Messaging ─────
+  firebase_messaging: ^16.0.3
+  flutter_local_notifications: ^19.5.0
+  timezone: ^0.10.1  # 🔔 Untuk betulkan masa notifikasi (disyorkan oleh plugin baru)
+
+  # ───── QR, Camera & Media ─────
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.1.3
+  image_picker: ^1.0.7
+
+  # ───── Utilities ─────
+  intl: ^0.20.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+  # ───── App Icon Generator ─────
+  flutter_launcher_icons: ^0.14.4
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/app_icon.png"
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/
