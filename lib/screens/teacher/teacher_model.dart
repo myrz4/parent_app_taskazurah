@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:parent_app/screens/chat_screen.dart';
+import 'package:parent_app_taskazurah/screens/chat_screen.dart';
 
 class Teacher {
   final String id;

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:parent_app/screens/attendance_dashboard.dart';
+import 'package:parent_app_taskazurah/screens/attendance_dashboard.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:parent_app/screens/parent_profile_page.dart';
-import 'package:parent_app/screens/chat_list_page.dart';
+import 'package:parent_app_taskazurah/screens/parent_profile_page.dart';
+import 'package:parent_app_taskazurah/screens/chat_list_page.dart';
 import 'package:intl/intl.dart';
 
 
