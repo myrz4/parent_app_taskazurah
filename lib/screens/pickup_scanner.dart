@@ -147,10 +147,8 @@ class _PickupScannerPageState extends State<PickupScannerPage> {
 
       // Ambil maklumat paparan
       final parentName = parentData['parentName'] ?? 'Unknown';
-      final teacherName =
-          (parentData['teacherName'] ?? parentData['teacher']) ?? 'Unknown';
-      final childId = parentData['childId'] ?? '';
-      final childName = parentData['childName'] ?? 'Unknown';
+        // No designated teacher per parent/child.
+        final teacherName = 'Teacher';
       final repName = parentData['representativeName'] ?? '-';
 
       // 2️⃣ Dapatkan dokumen token sebenar
@@ -166,6 +164,10 @@ class _PickupScannerPageState extends State<PickupScannerPage> {
       final bool used = tokenData['used'] ?? false;
       final Timestamp? expiredAtTs = tokenData['expiredAt'];
       final DateTime? expiredAt = expiredAtTs?.toDate();
+
+        final String childId = (tokenData['childId'] ?? parentData['childId'] ?? '').toString().trim();
+        final String childName =
+          (tokenData['childName'] ?? parentData['childName'] ?? 'Unknown').toString().trim();
 
       // 3️⃣ Semak status token
       if (used) {

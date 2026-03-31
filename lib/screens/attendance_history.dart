@@ -5,13 +5,11 @@ import 'package:intl/intl.dart';
 class AttendanceHistoryPage extends StatelessWidget {
   final String childId;
   final String childName;
-  final String className;
 
   const AttendanceHistoryPage({
     super.key,
     required this.childId,
     required this.childName,
-    required this.className,
   });
 
   static const Color primary = Color(0xFF7ACB9E);
@@ -22,10 +20,45 @@ class AttendanceHistoryPage extends StatelessWidget {
   String normalize(String s) =>
       s.replaceAll(RegExp(r'[\s\n\r\t]'), '').trim();
 
+  DateTime? _parseDateFromDocId(String docId) {
+    // Common pattern in this project: YYYY-MM-DD_<childId>
+    final m = RegExp(r'^(\d{4}-\d{2}-\d{2})').firstMatch(docId);
+    if (m == null) return null;
+    return DateTime.tryParse(m.group(1)!);
+  }
+
+  DateTime _bestRecordDate(Map<String, dynamic> data, {String? docId}) {
+    final checkIn = data['check_in_time'];
+    if (checkIn is Timestamp) return checkIn.toDate();
+
+    final rawDate = data['date'];
+    if (rawDate is Timestamp) return rawDate.toDate();
+    if (rawDate is DateTime) return rawDate;
+    if (rawDate is String) {
+      // Support ISO-8601 and YYYY-MM-DD. (Exports may include non-ISO strings.)
+      final dt = DateTime.tryParse(rawDate);
+      if (dt != null) return dt;
+      final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})').firstMatch(rawDate);
+      if (m != null) {
+        return DateTime(
+          int.parse(m.group(1)!),
+          int.parse(m.group(2)!),
+          int.parse(m.group(3)!),
+        );
+      }
+    }
+
+    final fromId = docId != null ? _parseDateFromDocId(docId) : null;
+    return fromId ?? DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final normalizedChildRef = '/children/${normalize(childId)}';
-    print("🧩 DEBUG: childId=$childId | childRef=$normalizedChildRef");
+    final normalizedChildId = normalize(childId);
+    final childRef = FirebaseFirestore.instance.collection('children').doc(normalizedChildId);
+    final normalizedChildRef = '/children/$normalizedChildId';
+    // ignore: avoid_print
+    print("🧩 DEBUG: childId=$childId | normalized=$normalizedChildId | childRef=$normalizedChildRef");
 
     return Scaffold(
       backgroundColor: backgroundLight,
@@ -50,9 +83,12 @@ class AttendanceHistoryPage extends StatelessWidget {
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('attendance')
-            .orderBy('date', descending: true)
+            // IMPORTANT: Parents cannot read the whole attendance collection.
+            // Query only records for this child to satisfy Firestore rules.
+            .where('childId', isEqualTo: normalizedChildId)
             .snapshots(),
         builder: (context, snapshot) {
+          // ignore: avoid_print
           print("🔥 hasData=${snapshot.hasData} | count=${snapshot.data?.docs.length ?? 0}");
 
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -60,20 +96,49 @@ class AttendanceHistoryPage extends StatelessWidget {
           }
 
           if (snapshot.hasError) {
-            return const Center(child: Text("Error loading attendance history"));
+            final msg = snapshot.error.toString();
+            final lower = msg.toLowerCase();
+            final isPermission = lower.contains('permission') || lower.contains('permission-denied');
+            final isIndex = lower.contains('failed-precondition') || lower.contains('index');
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  isPermission
+                      ? 'Permission denied to read attendance records.'
+                      : isIndex
+                          ? 'Query requires an index. Contact admin to create the Firestore index.'
+                          : 'Error loading attendance history: $msg',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
           }
 
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
             return const Center(child: Text("No attendance records found"));
           }
 
+          // Most records should already match by childId due to the query.
+          // Keep a small fallback check for legacy records that stored a childRef.
           final docs = snapshot.data!.docs;
           final normalizedDocs = docs.where((d) {
             final data = d.data() as Map<String, dynamic>;
-            final ref = normalize((data['childRef'] ?? '').toString());
             final id = normalize((data['childId'] ?? '').toString());
-            return ref == normalizedChildRef || id == normalize(childId);
-          }).toList();
+            if (id == normalizedChildId) return true;
+
+            final rawRef = data['childRef'];
+            if (rawRef is DocumentReference) return rawRef.path == childRef.path;
+            final refStr = normalize((rawRef ?? '').toString());
+            return refStr == normalizedChildRef;
+          }).toList()
+            ..sort((a, b) {
+              final aData = a.data() as Map<String, dynamic>;
+              final bData = b.data() as Map<String, dynamic>;
+              final aTime = _bestRecordDate(aData, docId: a.id);
+              final bTime = _bestRecordDate(bData, docId: b.id);
+              return bTime.compareTo(aTime);
+            });
 
           if (normalizedDocs.isEmpty) {
             print("❌ No match for $normalizedChildRef");
@@ -120,7 +185,7 @@ class AttendanceHistoryPage extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             children: [
               Text(
-                "$childName — $className",
+                childName,
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 10),
@@ -130,7 +195,7 @@ class AttendanceHistoryPage extends StatelessWidget {
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               for (var doc in normalizedDocs) ...[
-                _recordCardFromFirestore(doc.data() as Map<String, dynamic>),
+                _recordCardFromFirestore(doc),
                 const SizedBox(height: 10),
               ],
               const SizedBox(height: 16),
@@ -212,7 +277,8 @@ class AttendanceHistoryPage extends StatelessWidget {
   }
 
   // ==================== RECORD CARD ====================
-  Widget _recordCardFromFirestore(Map<String, dynamic> data) {
+  Widget _recordCardFromFirestore(QueryDocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
     final checkInTs = data['check_in_time'] as Timestamp?;
     final checkOutTs = data['check_out_time'] as Timestamp?;
     final isPresent = data['isPresent'] ?? false;
@@ -224,21 +290,8 @@ class AttendanceHistoryPage extends StatelessWidget {
         ? DateFormat('hh:mm a').format(checkOutTs.toDate())
         : "-";
 
-    final dateTs = data['date'];
-    DateTime? dateTime;
-    if (dateTs is Timestamp) {
-      dateTime = dateTs.toDate();
-    } else {
-      try {
-        dateTime = DateTime.parse(dateTs.toString());
-      } catch (_) {
-        dateTime = null;
-      }
-    }
-
-    final date = dateTime != null
-        ? DateFormat('EEE, dd MMM yyyy').format(dateTime)
-        : "Unknown Date";
+    final dateTime = _bestRecordDate(data, docId: doc.id);
+    final date = DateFormat('EEE, dd MMM yyyy').format(dateTime);
 
     String status = "absent";
     if (isPresent == true) {

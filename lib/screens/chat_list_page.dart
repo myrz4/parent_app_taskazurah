@@ -1,19 +1,33 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
 import 'chat_screen.dart';
 
 class ChatListPage extends StatelessWidget {
-  final String parentUsername; // e.g. "ezham", dynamic ikut login parent
+  final String parentId; // Firestore doc id, e.g. "ezham_0194965099"
+  final String parentName; // display name, e.g. "Ezham"
 
-  const ChatListPage({super.key, required this.parentUsername});
+  const ChatListPage({
+    super.key,
+    required this.parentId,
+    required this.parentName,
+  });
 
   static const Color primary = Color(0xFF7ACB9E);
 
+  static String _norm(String s) => s.trim().toLowerCase();
+
+  static String _chatIdFor({required String teacherId, required String parentId}) {
+    return 'teacher_${_norm(teacherId)}_parent_${_norm(parentId)}';
+  }
+
+  static int _asInt(Object? v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return 0;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final lowerParent = parentUsername.toLowerCase();
-
     return Scaffold(
       backgroundColor: const Color(0xFFF6F8F7),
       appBar: AppBar(
@@ -25,11 +39,7 @@ class ChatListPage extends StatelessWidget {
         centerTitle: true,
       ),
       body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('chats')
-            .where('parentUsername', isEqualTo: lowerParent)
-            .orderBy('lastTimestamp', descending: true)
-            .snapshots(),
+        stream: FirebaseFirestore.instance.collection('teachers').snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
@@ -39,95 +49,134 @@ class ChatListPage extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final chatDocs = snapshot.data?.docs ?? [];
-          if (chatDocs.isEmpty) {
+          final teacherDocs = snapshot.data?.docs ?? [];
+          if (teacherDocs.isEmpty) {
             return const Center(
               child: Text(
-                'No chats available yet.',
+                'No teachers available yet.',
                 style: TextStyle(color: Colors.grey, fontSize: 16),
               ),
             );
           }
 
-          return ListView.builder(
-            itemCount: chatDocs.length,
-            itemBuilder: (context, index) {
-              final data = chatDocs[index].data()! as Map<String, dynamic>;
-
-              // safe casting
-              final String teacherUsername =
-                  (data['teacherUsername'] as String?)?.trim().toLowerCase() ??
-                      'unknown';
-              final String parentUsernameField =
-                  (data['parentUsername'] as String?)?.trim().toLowerCase() ??
-                      lowerParent;
-              final String lastMessage =
-                  (data['lastMessage'] as String?) ?? 'No message yet';
-              final Timestamp? lastTimestamp =
-                  data['lastTimestamp'] as Timestamp?;
-
-              // format time nicely
-              String formattedTime = '';
-              if (lastTimestamp != null) {
-                try {
-                  formattedTime =
-                      DateFormat('hh:mm a').format(lastTimestamp.toDate());
-                } catch (_) {}
+          return StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('chats')
+                .where('parentId', isEqualTo: parentId)
+                .snapshots(),
+            builder: (context, chatsSnap) {
+              if (chatsSnap.hasError) {
+                return Center(child: Text('Error: ${chatsSnap.error}'));
               }
 
-              String capitalize(String text) {
-                if (text.isEmpty) return text;
-                return text[0].toUpperCase() + text.substring(1);
+              final chatById = <String, Map<String, dynamic>>{};
+              for (final d in (chatsSnap.data?.docs ?? const [])) {
+                final data = d.data();
+                if (data is Map<String, dynamic>) {
+                  chatById[d.id] = data;
+                }
               }
 
-              // build chatId dynamically (same pattern used in chat_screen)
-              final chatId =
-                  'teacher_${teacherUsername}_parent_$parentUsernameField'
-                      .toLowerCase();
+              final items = teacherDocs.map((doc) {
+                final data = doc.data()! as Map<String, dynamic>;
+                final teacherId = doc.id.trim();
+                final teacherName =
+                    (data['name'] as String?)?.trim().isNotEmpty == true
+                        ? (data['name'] as String).trim()
+                    : teacherId;
 
-              return Card(
-                margin:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: 2,
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: primary.withOpacity(0.25),
-                    child: const Icon(Icons.person, color: Colors.black54),
-                  ),
-                  title: Text(
-                    'Teacher ${capitalize(teacherUsername)}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
+                final chatId = _chatIdFor(teacherId: teacherId, parentId: parentId);
+                final chat = chatById[chatId];
+                final lastTs = chat?['lastTimestamp'];
+
+                return (
+                  teacherId: teacherId,
+                  teacherName: teacherName,
+                  chatId: chatId,
+                  lastTimestamp: lastTs is Timestamp ? lastTs : null,
+                  lastMessage: (chat?['lastMessage'] ?? '').toString(),
+                  unread: _asInt(chat?['unreadCountParent']),
+                );
+              }).toList();
+
+              items.sort((a, b) {
+                final at = a.lastTimestamp;
+                final bt = b.lastTimestamp;
+                if (at == null && bt == null) {
+                  return a.teacherName.toLowerCase().compareTo(b.teacherName.toLowerCase());
+                }
+                if (at == null) return 1;
+                if (bt == null) return -1;
+                final cmp = bt.compareTo(at); // desc
+                if (cmp != 0) return cmp;
+                return a.teacherName.toLowerCase().compareTo(b.teacherName.toLowerCase());
+              });
+
+              return ListView.builder(
+                itemCount: items.length,
+                itemBuilder: (context, index) {
+                  final it = items[index];
+                  final subtitle = it.lastMessage.trim().isEmpty
+                      ? 'Tap to start chatting'
+                      : it.lastMessage.trim();
+
+                  return Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                  ),
-                  subtitle: Text(
-                    lastMessage,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                  trailing: Text(
-                    formattedTime,
-                    style: const TextStyle(fontSize: 12, color: Colors.grey),
-                  ),
-                  onTap: () {
-                    // when user taps a teacher, open chat_screen with correct document id
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ChatScreen(
-                          chatId: chatId,
-                          teacherUsername: teacherUsername,
-                          parentUsername: parentUsernameField,
+                    elevation: 2,
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: primary.withOpacity(0.25),
+                        child: const Icon(Icons.person, color: Colors.black54),
+                      ),
+                      title: Text(
+                        it.teacherName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
                         ),
                       ),
-                    );
-                  },
-                ),
+                      subtitle: Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.grey),
+                      ),
+                      trailing: it.unread > 0
+                          ? Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: primary,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                it.unread > 99 ? '99+' : it.unread.toString(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            )
+                          : null,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ChatScreen(
+                              teacherId: it.teacherId,
+                              teacherName: it.teacherName,
+                              parentId: parentId,
+                              parentName: parentName,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
               );
             },
           );

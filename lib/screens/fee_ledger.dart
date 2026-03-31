@@ -1,5 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'fee_invoice_details.dart';
+import 'package:intl/intl.dart';
+
+import 'billing_invoice_presenter.dart';
+import 'billing_invoice_status_repair.dart';
 
 void main() {
   runApp(const MonthlyLedgerApp());
@@ -22,7 +26,7 @@ class MonthlyLedgerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Taska Zurah - Monthly Ledger',
+      title: 'Taska Zurah - Billing History',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.light,
@@ -52,17 +56,39 @@ class MonthlyLedgerPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final parentId = (args?['parentId'] ?? '').toString().trim();
+    final parentName = (args?['parentName'] ?? 'Parent').toString().trim();
+
     final theme = Theme.of(context);
     final bool isDark = theme.brightness == Brightness.dark;
 
     final cardBg = isDark ? Colors.grey[850] : Colors.white;
-    final dividerColor = isDark ? Colors.grey[800] : Colors.grey[200];
     final textPrimary = isDark
         ? MonthlyLedgerApp.textDark
         : MonthlyLedgerApp.textLight;
     final subtle = isDark
         ? MonthlyLedgerApp.subtleDark
         : MonthlyLedgerApp.subtleLight;
+
+    if (parentId.isEmpty) {
+      return const Scaffold(
+        body: SafeArea(
+          child: Center(child: Text('Missing parentId argument')),
+        ),
+      );
+    }
+
+    final money = NumberFormat.currency(locale: 'ms_MY', symbol: 'RM');
+    String fmtSen(Object? raw) {
+      final n = raw is int ? raw : (raw is num ? raw.toInt() : 0);
+      return money.format(n / 100.0);
+    }
+
+    DateTime? tsToDate(Object? raw) {
+      if (raw is Timestamp) return raw.toDate();
+      return null;
+    }
 
     return Scaffold(
       // top bar implemented manually to mimic sticky header
@@ -91,7 +117,7 @@ class MonthlyLedgerPage extends StatelessWidget {
                   Expanded(
                     child: Center(
                       child: Text(
-                        'Monthly Ledger',
+                        'Billing History',
                         style: TextStyle(
                           color: textPrimary,
                           fontSize: 18,
@@ -121,16 +147,46 @@ class MonthlyLedgerPage extends StatelessWidget {
             Expanded(
               child: Stack(
                 children: [
-                  ListView(
-                    padding: const EdgeInsets.fromLTRB(
-                      16,
-                      12,
-                      16,
-                      140,
-                    ), // leave space for footer
-                    children: [
-                      // Header Card with name & balance
-                      Container(
+                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                    stream: FirebaseFirestore.instance
+                        .collection('parents')
+                        .doc(parentId)
+                        .collection('invoices')
+                        .orderBy('createdAt', descending: true)
+                        .snapshots(),
+                    builder: (context, snap) {
+                      if (snap.connectionState == ConnectionState.waiting) {
+                        return const Center(
+                          child: CircularProgressIndicator(color: MonthlyLedgerApp.primary),
+                        );
+                      }
+
+                      final docs = snap.data?.docs ?? const [];
+                      int totalPaidSen = 0;
+                      int outstandingSen = 0;
+                      DateTime? lastPaidAt;
+
+                      for (final d in docs) {
+                        final m = d.data();
+                        final status = (m['status'] ?? '').toString().toLowerCase();
+                        final total = (m['totalSen'] is int)
+                            ? (m['totalSen'] as int)
+                            : (m['totalSen'] is num ? (m['totalSen'] as num).toInt() : 0);
+
+                        if (status == 'paid') {
+                          totalPaidSen += total;
+                          final paidAt = tsToDate(m['paidAt']);
+                          if (paidAt != null &&
+                              (lastPaidAt == null ||
+                                  paidAt.isAfter(lastPaidAt))) {
+                            lastPaidAt = paidAt;
+                          }
+                        } else if (status != 'void') {
+                          outstandingSen += total;
+                        }
+                      }
+
+                      final header = Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: cardBg,
@@ -147,7 +203,7 @@ class MonthlyLedgerPage extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Zahra Binti Abdullah',
+                              parentName,
                               style: TextStyle(
                                 color: textPrimary,
                                 fontSize: 20,
@@ -162,193 +218,223 @@ class MonthlyLedgerPage extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Balance: RM550.00',
+                                      'Outstanding: ${fmtSen(outstandingSen)}',
                                       style: TextStyle(color: subtle),
                                     ),
                                     const SizedBox(height: 6),
                                     Text(
-                                      'Overdue',
+                                      outstandingSen > 0 ? 'Payment required' : 'Up to date',
                                       style: TextStyle(
-                                        color: MonthlyLedgerApp.statusUnpaid,
+                                        color: outstandingSen > 0
+                                            ? MonthlyLedgerApp.statusUnpaid
+                                            : MonthlyLedgerApp.primary,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
                                   ],
                                 ),
-                                // placeholder right side if needed
                                 const SizedBox(width: 8),
                               ],
                             ),
                           ],
                         ),
-                      ),
+                      );
 
-                      const SizedBox(height: 16),
-
-                      // Entries list
-                      Column(
-                        children: [
-                          _ledgerEntry(
-                            context: context,
-                            iconBackground: MonthlyLedgerApp.primary,
-                            icon: Icons.check_circle,
-                            title: 'October 2024 Fee: RM550.00',
-                            subtitle: 'Paid on: Oct 5, 2024',
-                            actionLabel: 'View Details',
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      const InvoiceDetailsPage(),
-                                ),
-                              );
-                            },
-                          ),
-
-                          const SizedBox(height: 12),
-                          _ledgerEntry(
-                            context: context,
-                            iconBackground: MonthlyLedgerApp.statusPending,
-                            icon: Icons.hourglass_empty,
-                            title: 'September 2024 Fee: RM550.00',
-                            subtitle: 'Status: Pending',
-                            actionLabel: 'View Details',
-                            onTap: () {},
-                          ),
-                          const SizedBox(height: 12),
-                          _ledgerEntry(
-                            context: context,
-                            iconBackground: MonthlyLedgerApp.statusUnpaid,
-                            icon: Icons.error_outline,
-                            title: 'August 2024 Fee: RM550.00',
-                            subtitle: 'Status: Unpaid',
-                            actionLabel: 'View Details',
-                            onTap: () {},
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-
-                  // Footer (floating at bottom)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      color: isDark ? Colors.grey[850] : Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // summary row
-                          Container(
-                            constraints: const BoxConstraints(maxWidth: 600),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      final entries = docs.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.only(top: 24),
+                              child: Center(
+                                child: Text('No billing records yet', style: TextStyle(color: subtle)),
+                              ),
+                            )
+                          : Column(
                               children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    children: [
-                                      Text(
-                                        'Total Paid',
-                                        style: TextStyle(color: subtle),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        'RM1100.00',
-                                        style: TextStyle(
-                                          color: textPrimary,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
+                                for (final d in docs) ...[
+                                  Builder(
+                                    builder: (context) {
+                                      final m = d.data();
+                                      BillingInvoiceStatusRepair.maybeRepair(
+                                        parentId: parentId,
+                                        invoiceId: d.id,
+                                        invoice: m,
+                                      );
+                                      final invoicePresentation = BillingInvoicePresentation.fromInvoice(
+                                        m,
+                                        parentNameFallback: parentName,
+                                      );
+                                      final status = (m['status'] ?? 'unpaid').toString().toLowerCase();
+                                      final totalSen = m['totalSen'] ?? 0;
+                                      final period = (m['period'] ?? '').toString();
+
+                                      Color bg;
+                                      IconData icon;
+                                      String paymentLine;
+
+                                      if (status == 'paid') {
+                                        bg = MonthlyLedgerApp.primary;
+                                        icon = Icons.check_circle;
+                                        final paidAt = tsToDate(m['paidAt']);
+                                        paymentLine = paidAt == null
+                                            ? 'Payment completed'
+                                            : 'Paid on: ${DateFormat('d MMM yyyy').format(paidAt)}';
+                                      } else if (status == 'pending') {
+                                        bg = MonthlyLedgerApp.statusPending;
+                                        icon = Icons.hourglass_empty;
+                                        paymentLine = 'Payment pending';
+                                      } else {
+                                        bg = MonthlyLedgerApp.statusUnpaid;
+                                        icon = Icons.error_outline;
+                                        final due = tsToDate(m['dueDate']);
+                                        paymentLine = due == null
+                                            ? 'Payment outstanding'
+                                            : 'Outstanding (due ${DateFormat('d MMM').format(due)})';
+                                      }
+
+                                      final title = '${period.isEmpty ? 'Invoice' : period} • ${fmtSen(totalSen)}';
+                                      final subtitleBuffer = StringBuffer()
+                                        ..writeln(invoicePresentation.supportingLabel)
+                                        ..write(paymentLine);
+                                      if (invoicePresentation.policySummary.isNotEmpty) {
+                                        subtitleBuffer
+                                          ..writeln()
+                                          ..write(invoicePresentation.managementReviewRecommended
+                                              ? 'Review: ${invoicePresentation.policySummary}'
+                                              : 'Note: ${invoicePresentation.policySummary}');
+                                      }
+                                      final subtitle = subtitleBuffer.toString();
+
+                                      return _ledgerEntry(
+                                        context: context,
+                                        iconBackground: bg,
+                                        icon: icon,
+                                        title: title,
+                                        subtitle: subtitle,
+                                        actionLabel: 'Open',
+                                        onTap: () {
+                                          Navigator.pushNamed(
+                                            context,
+                                            '/fee_invoice_details',
+                                            arguments: {
+                                              'parentId': parentId,
+                                              'parentName': parentName,
+                                              'invoiceId': d.id,
+                                            },
+                                          );
+                                        },
+                                      );
+                                    },
                                   ),
-                                ),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    children: [
-                                      Text(
-                                        'Outstanding',
-                                        style: TextStyle(color: subtle),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        'RM550.00',
-                                        style: TextStyle(
-                                          color: MonthlyLedgerApp.statusUnpaid,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    children: [
-                                      Text(
-                                        'Last Payment',
-                                        style: TextStyle(color: subtle),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        'Oct 5, 2024',
-                                        style: TextStyle(
-                                          color: textPrimary,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                  const SizedBox(height: 12),
+                                ],
                               ],
-                            ),
+                            );
+
+                      return Stack(
+                        children: [
+                          ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 140),
+                            children: [
+                              header,
+                              const SizedBox(height: 16),
+                              entries,
+                            ],
                           ),
-                          const SizedBox(height: 12),
-                          // Go green banner
-                          Container(
-                            constraints: const BoxConstraints(maxWidth: 600),
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 12,
-                              horizontal: 12,
-                            ),
-                            decoration: BoxDecoration(
-                              color: MonthlyLedgerApp.primary.withOpacity(0.18),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.eco,
-                                  color: MonthlyLedgerApp.primary,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Go Green! All your receipts are saved digitally.',
-                                    style: TextStyle(
-                                      color: MonthlyLedgerApp.primary,
-                                      fontWeight: FontWeight.w600,
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              color: isDark ? Colors.grey[850] : Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    constraints: const BoxConstraints(maxWidth: 600),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.center,
+                                            children: [
+                                              Text('Total Paid', style: TextStyle(color: subtle)),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                fmtSen(totalPaidSen),
+                                                style: TextStyle(color: textPrimary, fontWeight: FontWeight.w700),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.center,
+                                            children: [
+                                              Text('Outstanding', style: TextStyle(color: subtle)),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                fmtSen(outstandingSen),
+                                                style: TextStyle(
+                                                  color: outstandingSen > 0
+                                                      ? MonthlyLedgerApp.statusUnpaid
+                                                      : MonthlyLedgerApp.primary,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.center,
+                                            children: [
+                                              Text('Last Payment', style: TextStyle(color: subtle)),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                lastPaidAt == null
+                                                    ? '—'
+                                                    : DateFormat('d MMM yyyy').format(lastPaidAt),
+                                                style: TextStyle(color: textPrimary, fontWeight: FontWeight.w700),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(height: 12),
+                                  Container(
+                                    constraints: const BoxConstraints(maxWidth: 600),
+                                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                                    decoration: BoxDecoration(
+                                      color: MonthlyLedgerApp.primary.withValues(alpha: 0.18),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.eco, color: MonthlyLedgerApp.primary),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            'Go paperless. All billing records and receipts are saved digitally.',
+                                            style: TextStyle(
+                                              color: MonthlyLedgerApp.primary,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ],
-                      ),
-                    ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -415,7 +501,12 @@ class MonthlyLedgerPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(subtitle, style: TextStyle(color: subtle, fontSize: 13)),
+                Text(
+                  subtitle,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: subtle, fontSize: 13),
+                ),
               ],
             ),
           ),

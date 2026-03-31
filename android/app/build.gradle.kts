@@ -8,6 +8,15 @@ android {
     namespace = "com.example.parent_app"
     compileSdk = 36 // ✅ updated for new plugins
 
+    packaging {
+        jniLibs {
+            // Prevent build failures on Windows where stripDebugSymbols can
+            // intermittently fail with "No such file or directory" for merged
+            // native libraries.
+            keepDebugSymbols += setOf("**/*.so")
+        }
+    }
+
     defaultConfig {
         applicationId = "com.example.parent_app"
         minSdk = flutter.minSdkVersion

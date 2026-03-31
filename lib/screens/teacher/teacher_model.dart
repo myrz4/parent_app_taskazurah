@@ -6,21 +6,26 @@ class Teacher {
   final String id;
   final String name;
   final String imageUrl;
-  final String className;
   final String experience;
 
   const Teacher({
     required this.id,
     required this.name,
     required this.imageUrl,
-    required this.className,
     required this.experience,
   });
 }
 
 class TeacherProfilePage extends StatelessWidget {
   final Teacher teacher;
-  const TeacherProfilePage({super.key, required this.teacher});
+  final String? parentId;
+  final String? parentName;
+  const TeacherProfilePage({
+    super.key,
+    required this.teacher,
+    this.parentId,
+    this.parentName,
+  });
 
   static const Color primary = Color(0xFF7ACB9E);
   static const Color backgroundLight = Color(0xFFFFFFFF);
@@ -60,11 +65,21 @@ class TeacherProfilePage extends StatelessWidget {
                     height: 128,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      image: DecorationImage(
-                        image: NetworkImage(teacher.imageUrl),
-                        fit: BoxFit.cover,
-                      ),
+                      color: primary.withOpacity(0.12),
                     ),
+                    child: teacher.imageUrl.trim().isEmpty
+                        ? Icon(Icons.person,
+                            size: 64, color: primary.withOpacity(0.9))
+                        : ClipOval(
+                            child: Image.network(
+                              teacher.imageUrl,
+                              width: 128,
+                              height: 128,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Icon(Icons.person,
+                                  size: 64, color: primary.withOpacity(0.9)),
+                            ),
+                          ),
                   ),
                   const SizedBox(height: 12),
                   Text(
@@ -94,14 +109,6 @@ class TeacherProfilePage extends StatelessWidget {
                   ),
                   child: Column(
                     children: [
-                      _infoRow(
-                        Icons.school,
-                        'Class handled',
-                        teacher.className,
-                        textSecondary,
-                        textColor,
-                        dividerColor,
-                      ),
                       _infoRow(
                         Icons.group,
                         'Total students',
@@ -147,7 +154,7 @@ class TeacherProfilePage extends StatelessWidget {
                       const SizedBox(height: 8),
                       Text(
                         'Cikgu ${teacher.name.split(" ").last} has over ${teacher.experience} of experience teaching early childhood learners. '
-                        'She is known for her caring approach and creative class activities.',
+                        'She is known for her caring approach and creative activities.',
                         style: TextStyle(
                           fontSize: 14,
                           height: 1.5,
@@ -213,37 +220,25 @@ class TeacherProfilePage extends StatelessWidget {
                   ),
                   onPressed: () async {
                     try {
-                      // Sementara hardcode parent, nanti link dengan login
-                      final teacherUsername = teacher.name.toLowerCase().trim();
-                      final parentUsername =
-                          "ezham"; // ← Gantikan ikut parent login dynamic
-
-                      final chatId =
-                          'teacher_${teacherUsername}_parent_$parentUsername';
-
-                      final chatRef = FirebaseFirestore.instance
-                          .collection('chats')
-                          .doc(chatId);
-                      final chatSnap = await chatRef.get();
-
-                      if (!chatSnap.exists) {
-                        await chatRef.set({
-                          'teacherUsername': teacherUsername,
-                          'parentUsername': parentUsername,
-                          'teacherRef': '/teachers/$teacherUsername',
-                          'parentRef': '/parents/$parentUsername',
-                          'lastMessage': '',
-                          'lastTimestamp': FieldValue.serverTimestamp(),
-                        });
+                      final pid = (parentId ?? '').trim();
+                      final pname = (parentName ?? '').trim();
+                      if (pid.isEmpty || pname.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Please open chat from Dashboard so parent session is known.'),
+                          ),
+                        );
+                        return;
                       }
 
                       Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (_) => ChatScreen(
-                            chatId: chatId,
-                            teacherUsername: teacherUsername,
-                            parentUsername: parentUsername,
+                            teacherId: teacher.id,
+                            teacherName: teacher.name,
+                            parentId: pid,
+                            parentName: pname,
                           ),
                         ),
                       );
@@ -258,13 +253,13 @@ class TeacherProfilePage extends StatelessWidget {
 
               const SizedBox(height: 8),
 
-              // 🔹 View Class Activities (placeholder)
+              // 🔹 View Activities (placeholder)
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   icon: const Icon(Icons.collections_bookmark),
                   label: const Text(
-                    'View Class Activities',
+                    'View Activities',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   style: OutlinedButton.styleFrom(
@@ -278,7 +273,7 @@ class TeacherProfilePage extends StatelessWidget {
                   onPressed: () {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('View Class Activities clicked'),
+                        content: Text('View Activities clicked'),
                       ),
                     );
                   },

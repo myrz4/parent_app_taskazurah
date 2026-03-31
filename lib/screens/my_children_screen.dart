@@ -9,14 +9,10 @@ class MyChildrenScreen extends StatelessWidget {
     final children = [
       {
         'name': 'Ali Bin Ahmad',
-        'class': 'Class A',
-        'teacherName': 'Cikgu Anep',
         'photoUrl': 'https://cdn-icons-png.flaticon.com/512/3667/3667444.png'
       },
       {
         'name': 'Siti Nur Alia',
-        'class': 'Class B',
-        'teacherName': 'Cikgu Hafizah',
         'photoUrl': 'https://cdn-icons-png.flaticon.com/512/3667/3667339.png'
       },
     ];
@@ -57,7 +53,19 @@ class MyChildrenScreen extends StatelessWidget {
                     CircleAvatar(
                       radius: 32,
                       backgroundColor: Colors.green.shade100,
-                      backgroundImage: NetworkImage(child['photoUrl'] ?? ''),
+                      child: ClipOval(
+                        child: Image.network(
+                          (child['photoUrl'] ?? '').toString(),
+                          width: 64,
+                          height: 64,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Icon(
+                            Icons.child_care,
+                            color: Colors.green.shade700,
+                            size: 32,
+                          ),
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -72,16 +80,6 @@ class MyChildrenScreen extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                            "Class: ${child['class']}",
-                            style: const TextStyle(
-                                fontSize: 14, color: Colors.black54),
-                          ),
-                          Text(
-                            "Teacher: ${child['teacherName']}",
-                            style: const TextStyle(
-                                fontSize: 14, color: Colors.black54),
-                          ),
                         ],
                       ),
                     ),

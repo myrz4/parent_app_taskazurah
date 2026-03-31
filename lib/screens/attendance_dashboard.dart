@@ -5,13 +5,11 @@ import 'package:intl/intl.dart';
 class AttendancePage extends StatelessWidget {
   final String childId;
   final String childName;
-  final String className;
 
   const AttendancePage({
     super.key,
     required this.childId,
     required this.childName,
-    required this.className,
   });
 
   static const Color primary = Color(0xFF7ACB9E);
@@ -85,7 +83,6 @@ class AttendancePage extends StatelessWidget {
                       arguments: {
                         'childId': childId,
                         'childName': childName,
-                        'className': className,
                       },
                     );
                   },
@@ -136,14 +133,6 @@ class AttendancePage extends StatelessWidget {
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                     color: Color(0xFF111714),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  className,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF648772),
                   ),
                 ),
               ],
@@ -272,7 +261,7 @@ class AttendancePage extends StatelessWidget {
                           Text(
                             checkOutTime != null
                                 ? 'Check-Out: $formattedCheckOut'
-                                : 'Still in class',
+                                : 'Not checked out yet',
                             style: const TextStyle(
                               color: Color(0xFF648772),
                               fontSize: 13,

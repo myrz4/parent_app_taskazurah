@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/foundation.dart';
 import 'firebase_options.dart';
 
 // --- Core Screens ---
-import 'screens/login_page.dart';
 import 'screens/dashboard_page.dart';
 import 'screens/attendance_dashboard.dart';
 import 'screens/attendance_history.dart';
@@ -14,6 +15,7 @@ import 'screens/fee_ledger.dart';
 import 'screens/fee_invoice_details.dart';
 import 'screens/memory_journey/memory_dashboard.dart';
 import 'screens/memory_journey/monthly_story_page.dart';
+import 'screens/auth_gate.dart';
 
 // --- Teacher Module ---
 import 'screens/teacher/teacher_profile_page.dart';
@@ -42,6 +44,12 @@ Future<void> main() async {
     print('🚀 Initializing Firebase...');
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     print('✅ Firebase initialized successfully');
+
+    // ✅ Dev-only: keep emulator / debug builds reliable.
+    // This DOES NOT affect release builds.
+    if (kDebugMode) {
+      await FirebaseAuth.instance.setSettings(appVerificationDisabledForTesting: true);
+    }
 
     // 🔔 FCM background handler
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
@@ -127,7 +135,7 @@ class MyApp extends StatelessWidget {
       ),
       initialRoute: '/',
       routes: {
-        '/': (context) => const LoginPage(),
+        '/': (context) => const ParentAuthGate(),
         '/dashboard': (context) => const TaskaZurahDashboard(),
         '/fees_dashboard': (context) => const FeesPaymentPage(),
         '/fee_ledger': (context) => const MonthlyLedgerPage(),
@@ -140,7 +148,6 @@ class MyApp extends StatelessWidget {
                 id: 'temp',
                 name: 'Example Teacher',
                 imageUrl: '',
-                className: '',
                 experience: '',
               ),
             ),
@@ -156,7 +163,6 @@ class MyApp extends StatelessWidget {
                 builder: (context) => AttendancePage(
                   childId: args['childId'] as String,
                   childName: args['childName'] as String,
-                  className: args['className'] as String,
                 ),
               );
             } else {
@@ -165,7 +171,6 @@ class MyApp extends StatelessWidget {
                 builder: (context) => const AttendancePage(
                   childId: 'default_child',
                   childName: 'Unknown',
-                  className: 'Class',
                 ),
               );
             }
@@ -176,7 +181,6 @@ class MyApp extends StatelessWidget {
                 builder: (context) => AttendanceHistoryPage(
                   childId: args['childId'] as String,
                   childName: args['childName'] as String,
-                  className: args['className'] as String,
                 ),
               );
             }

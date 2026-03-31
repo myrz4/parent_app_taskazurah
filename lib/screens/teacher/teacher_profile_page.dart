@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'teacher_model.dart'; // import model + profile page
 
@@ -16,6 +17,10 @@ class TeacherListPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final parentId = (args?['parentId'] ?? '').toString().trim();
+    final parentName = (args?['parentName'] ?? '').toString().trim();
+
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? textDark : textLight;
     final bgSubtle = isDark ? subtleDark : subtleLight;
@@ -36,7 +41,7 @@ class TeacherListPage extends StatelessWidget {
                   ),
                   Expanded(
                     child: Text(
-                      'Our Teachers 👩‍🏫',
+                      'Our Teachers',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.plusJakartaSans(
                         fontSize: 18,
@@ -52,36 +57,63 @@ class TeacherListPage extends StatelessWidget {
 
             // 🔹 FIRESTORE STREAM
             Expanded(
-              child: StreamBuilder<QuerySnapshot>(
+              child: FirebaseAuth.instance.currentUser == null
+                  ? const Center(child: Text('Please sign in to view teachers.'))
+                  : StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
                     .collection('teachers')
-                    .orderBy('name')
                     .snapshots(),
                 builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Text(
+                          'Failed to load teachers.\n${snapshot.error}',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    );
+                  }
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
                   }
-                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  final docs = snapshot.data?.docs ?? const [];
+                  if (docs.isEmpty) {
                     return const Center(child: Text("No teachers found"));
                   }
 
-                  final teachers = snapshot.data!.docs;
+                  final teachers = docs
+                      .map((d) {
+                        final raw = d.data();
+                        if (raw is! Map<String, dynamic>) return null;
+
+                        final name = (raw['name'] ?? '').toString().trim();
+                        final image = (raw['image'] ?? '').toString().trim();
+                        final experience = (raw['experience'] ?? 'N/A').toString().trim();
+
+                        return Teacher(
+                          id: d.id,
+                          name: name.isEmpty ? d.id : name,
+                          imageUrl: image,
+                          experience: experience.isEmpty ? 'N/A' : experience,
+                        );
+                      })
+                      .whereType<Teacher>()
+                      .toList();
+
+                  teachers.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+                  if (teachers.isEmpty) {
+                    return const Center(child: Text("No teachers found"));
+                  }
 
                   return ListView.builder(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 12),
                     itemCount: teachers.length,
                     itemBuilder: (context, index) {
-                      final data =
-                          teachers[index].data() as Map<String, dynamic>;
-
-                      final teacher = Teacher(
-                        id: teachers[index].id,
-                        name: data['name'] ?? 'Unknown',
-                        imageUrl: data['image'] ?? '',
-                        className: data['class'] ?? 'N/A',
-                        experience: data['experience'] ?? 'N/A',
-                      );
+                      final teacher = teachers[index];
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 12),
@@ -96,7 +128,11 @@ class TeacherListPage extends StatelessWidget {
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) =>
-                                      TeacherProfilePage(teacher: teacher),
+                                      TeacherProfilePage(
+                                        teacher: teacher,
+                                        parentId: parentId.isEmpty ? null : parentId,
+                                        parentName: parentName.isEmpty ? null : parentName,
+                                      ),
                                 ),
                               );
                             },
@@ -109,11 +145,23 @@ class TeacherListPage extends StatelessWidget {
                                     height: 64,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
-                                      image: DecorationImage(
-                                        image: NetworkImage(teacher.imageUrl),
-                                        fit: BoxFit.cover,
-                                      ),
+                                      color: bgSubtle,
                                     ),
+                                    child: teacher.imageUrl.trim().isEmpty
+                                        ? Icon(Icons.person,
+                                            color: primary.withOpacity(0.9))
+                                        : ClipOval(
+                                            child: Image.network(
+                                              teacher.imageUrl,
+                                              width: 64,
+                                              height: 64,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, __, ___) =>
+                                                  Icon(Icons.person,
+                                                      color: primary
+                                                          .withOpacity(0.9)),
+                                            ),
+                                          ),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
@@ -130,12 +178,6 @@ class TeacherListPage extends StatelessWidget {
                                           ),
                                         ),
                                         const SizedBox(height: 4),
-                                        Text(
-                                          'Class: ${teacher.className}',
-                                          style: TextStyle(
-                                              fontSize: 13,
-                                              color: Colors.grey.shade600),
-                                        ),
                                         Text(
                                           'Experience: ${teacher.experience}',
                                           style: TextStyle(

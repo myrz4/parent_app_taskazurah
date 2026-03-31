@@ -3,15 +3,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
 class ChatScreen extends StatefulWidget {
-  final String chatId; // contoh: teacher_sofea_parent_ezham
-  final String teacherUsername; // contoh: sofea
-  final String parentUsername; // contoh: ezham
+  final String teacherId; // Firestore doc id
+  final String teacherName; // display name, e.g. "Teacher Sofea"
+  final String parentId; // Firestore doc id, e.g. "ezham_0194965099"
+  final String parentName; // display name, e.g. "Ezham"
 
   const ChatScreen({
     super.key,
-    required this.chatId,
-    required this.teacherUsername,
-    required this.parentUsername,
+    required this.teacherId,
+    required this.teacherName,
+    required this.parentId,
+    required this.parentName,
   });
 
   @override
@@ -23,31 +25,55 @@ class _ChatScreenState extends State<ChatScreen> {
   final _scrollCtl = ScrollController();
   final _db = FirebaseFirestore.instance;
 
+  late final DocumentReference<Map<String, dynamic>> _chatRef;
+
+  static String _norm(String s) => s.trim().toLowerCase();
+
+  static String _chatIdFor({required String teacherId, required String parentId}) {
+    return 'teacher_${_norm(teacherId)}_parent_${_norm(parentId)}';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final chatId = _chatIdFor(teacherId: widget.teacherId, parentId: widget.parentId);
+    _chatRef = _db.collection('chats').doc(chatId);
+
+    // Mark as read for this side (best-effort).
+    _chatRef.set({'unreadCountParent': 0}, SetOptions(merge: true)).catchError((_) {});
+  }
+
   Future<void> _send() async {
     final text = _msgCtl.text.trim();
     if (text.isEmpty) return;
 
-    print('🟢 Sending message: $text');
-    print('Chat ID: ${widget.chatId}');
-    print(
-        'Teacher: ${widget.teacherUsername}, Parent: ${widget.parentUsername}');
-
-    final chatRef = _db.collection('chats').doc(widget.chatId);
-
     // default: parent send
-    await chatRef.collection('messages').add({
-      'sender': widget.parentUsername,
+    await _chatRef.collection('messages').add({
+      'senderRole': 'parent',
+      'senderId': widget.parentId,
+      'senderName': widget.parentName,
+      // keep legacy field for backward-compatible UIs
+      'sender': widget.parentName,
       'text': text,
       'timestamp': FieldValue.serverTimestamp(),
     });
 
-    await chatRef.set({
-      'teacherUsername': widget.teacherUsername,
-      'parentUsername': widget.parentUsername,
-      'teacherRef': '/teachers/${widget.teacherUsername}',
-      'parentRef': '/parents/${widget.parentUsername}',
+    await _chatRef.set({
+      'teacherId': widget.teacherId,
+      // Legacy field kept for backward-compatible UIs; do not rely on this.
+      'teacherUsername': _norm(widget.teacherId),
+      'teacherName': widget.teacherName,
+      'parentId': widget.parentId,
+      // Legacy field kept for backward-compatible UIs; do not rely on this.
+      'parentUsername': _norm(widget.parentId),
+      'parentName': widget.parentName,
+      'teacherRef': '/teachers/${widget.teacherId}',
+      'parentRef': '/parents/${widget.parentId}',
       'lastMessage': text,
       'lastTimestamp': FieldValue.serverTimestamp(),
+      // Unread counters (for list badge)
+      'unreadCountParent': 0,
+      'unreadCountTeacher': FieldValue.increment(1),
     }, SetOptions(merge: true));
 
     _msgCtl.clear();
@@ -116,20 +142,18 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final chatRef = _db.collection('chats').doc(widget.chatId);
-
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color(0xFF7ACB9E),
         foregroundColor: Colors.white,
-        title: Text('Chat • ${widget.teacherUsername.toUpperCase()}'),
+        title: Text('Chat • ${widget.teacherName}'),
       ),
       backgroundColor: const Color(0xFFF6F8F7),
       body: Column(
         children: [
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: chatRef
+              stream: _chatRef
                   .collection('messages')
                   .orderBy('timestamp', descending: false)
                   .snapshots(),
@@ -153,10 +177,14 @@ class _ChatScreenState extends State<ChatScreen> {
                   itemCount: messages.length,
                   itemBuilder: (_, i) {
                     final m = messages[i].data() as Map<String, dynamic>;
-                    final sender = (m['sender'] ?? '').toString();
+                    final senderRole = (m['senderRole'] ?? '').toString();
+                    final senderId = (m['senderId'] ?? '').toString();
+                    final legacySender = (m['sender'] ?? '').toString();
                     final text = (m['text'] ?? '').toString();
                     final ts = m['timestamp'] as Timestamp?;
-                    final isMe = sender == widget.parentUsername;
+
+                    final isMe = (senderRole == 'parent' && senderId == widget.parentId) ||
+                        (senderRole.isEmpty && (legacySender == widget.parentId || _norm(legacySender) == _norm(widget.parentName)));
 
                     final time = _formatLocalTime(ts);
 

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+import 'app_lock_settings_page.dart';
 
 class ParentProfilePage extends StatelessWidget {
   final String parentId;
@@ -83,7 +86,7 @@ class ParentProfilePage extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: primary.withOpacity(0.15),
+        color: primary.withValues(alpha: 0.15),
         shape: circular ? BoxShape.circle : BoxShape.rectangle,
         borderRadius: circular ? null : BorderRadius.circular(12),
       ),
@@ -96,13 +99,24 @@ class ParentProfilePage extends StatelessWidget {
 
     if (photoUrl == null || photoUrl.isEmpty) return fallback;
 
-    final image = NetworkImage(photoUrl);
     return circular
-        ? CircleAvatar(radius: size / 2, backgroundImage: image)
+        ? CircleAvatar(
+            radius: size / 2,
+            backgroundColor: primary.withValues(alpha: 0.15),
+            child: ClipOval(
+              child: Image.network(
+                photoUrl,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => fallback,
+              ),
+            ),
+          )
         : ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: Image(
-              image: image,
+            child: Image.network(
+              photoUrl,
               width: size,
               height: size,
               fit: BoxFit.cover,
@@ -157,22 +171,41 @@ class ParentProfilePage extends StatelessWidget {
     throw Exception('Invalid reference type: ${raw.runtimeType}');
   }
 
-  Future<String> _resolveTeacherName(dynamic teacherRef) async {
-    if (teacherRef == null) return '–';
-    try {
-      final snap = await _resolveRef(teacherRef);
-      if (!snap.exists) return '–';
-      final data = snap.data() as Map<String, dynamic>?;
-      return data?['name']?.toString() ?? '–';
-    } catch (_) {
-      return '–';
-    }
-  }
-
   void _stub(BuildContext context, String feature) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('// TODO: Implement $feature')),
     );
+  }
+
+  Future<void> _confirmAndLogout(BuildContext context) async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Logout'),
+          content: const Text('Are you sure you want to logout?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Logout'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldLogout != true) return;
+    await FirebaseAuth.instance.signOut();
+    if (!context.mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil('/', (r) => false);
   }
 
   @override
@@ -208,10 +241,10 @@ class ParentProfilePage extends StatelessWidget {
           final parentName = data['parentName']?.toString() ?? 'N/A';
           final phone = data['phone']?.toString() ?? 'N/A';
           final photoUrl = data['photoUrl']?.toString();
-          final rawChildren = data['childrenRefs'] ??
+            final rawChildren = data['childRefs'] ??
+              data['childrenRefs'] ??
               (data['childRef'] != null ? [data['childRef']] : <dynamic>[]);
-          final List<dynamic> childrenRefs =
-              rawChildren is List ? rawChildren : [];
+            final List<dynamic> childrenRefs = rawChildren is List ? rawChildren : [];
           final nfcTag = data['nfc']?['tagUid']?.toString() ??
               data['childId']?.toString() ??
               '–';
@@ -240,6 +273,34 @@ class ParentProfilePage extends StatelessWidget {
                         SizedBox(height: _spacing[0]),
                         Text(phone, style: _body),
                         SizedBox(height: _spacing[3]),
+
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const AppLockSettingsPage(),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.lock_outline, color: primary),
+                            label: Text(
+                              'App Lock',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontWeight: FontWeight.w700,
+                                color: primary,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: primary),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: EdgeInsets.symmetric(vertical: _spacing[2]),
+                            ),
+                          ),
+                        ),
                       
                       
                       ],
@@ -285,66 +346,50 @@ class ParentProfilePage extends StatelessWidget {
                           final childName =
                               childData['name']?.toString() ?? 'Unknown';
                           final childPhoto = childData['photoUrl']?.toString();
-                          final className =
-                              childData['className']?.toString() ??
-                                  data['className']?.toString() ??
-                                  '–';
 
-                          return FutureBuilder<String>(
-                            future: _resolveTeacherName(
-                                childData['teacherRef'] ?? data['teacherRef']),
-                            builder: (context, teacherSnap) {
-                              final teacherName = teacherSnap.data ?? '–';
-
-                              return Card(
-                                shape: RoundedRectangleBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(_cardRadius)),
-                                elevation: _cardElevation,
-                                margin:
-                                    const EdgeInsets.only(bottom: 12, top: 4),
-                                child: Padding(
-                                  padding: _cardPadding,
-                                  child: Row(
-                                    children: [
-                                      _avatar(childPhoto, size: 70),
-                                      SizedBox(width: _spacing[3]),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(childName,
-                                                style:
-                                                    GoogleFonts.plusJakartaSans(
-                                                        fontSize: 16,
-                                                        fontWeight:
-                                                            FontWeight.w600)),
-                                            Text('Class: $className',
-                                                style: _body),
-                                            Text('Teacher: $teacherName',
-                                                style: _body),
-                                          ],
-                                        ),
-                                      ),
-                                      ElevatedButton(
-                                        onPressed: () => _stub(
-                                            context, 'View Child: $childId'),
-                                        style: ElevatedButton.styleFrom(
-                                            backgroundColor: primary,
-                                            shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(12))),
-                                        child: Text('View Details',
-                                            style: GoogleFonts.plusJakartaSans(
-                                                color: Colors.white,
-                                                fontSize: 14)),
-                                      ),
-                                    ],
+                          return Card(
+                            shape: RoundedRectangleBorder(
+                                borderRadius:
+                                    BorderRadius.circular(_cardRadius)),
+                            elevation: _cardElevation,
+                            margin:
+                                const EdgeInsets.only(bottom: 12, top: 4),
+                            child: Padding(
+                              padding: _cardPadding,
+                              child: Row(
+                                children: [
+                                  _avatar(childPhoto, size: 70),
+                                  SizedBox(width: _spacing[3]),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(childName,
+                                            style:
+                                                GoogleFonts.plusJakartaSans(
+                                                    fontSize: 16,
+                                                    fontWeight:
+                                                        FontWeight.w600)),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                              );
-                            },
+                                  ElevatedButton(
+                                    onPressed: () => _stub(
+                                        context, 'View Child: $childId'),
+                                    style: ElevatedButton.styleFrom(
+                                        backgroundColor: primary,
+                                        shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(12))),
+                                    child: Text('View Details',
+                                        style: GoogleFonts.plusJakartaSans(
+                                            color: Colors.white,
+                                            fontSize: 14)),
+                                  ),
+                                ],
+                              ),
+                            ),
                           );
                         },
                       )),
@@ -412,7 +457,7 @@ class ParentProfilePage extends StatelessWidget {
                       _switchTile(context, 'Activity Updates',
                           settings['activity'] ?? true, parentRef, 'activity'),
                       const Divider(height: 1),
-                      _switchTile(context, 'Fee Reminders',
+                        _switchTile(context, 'Billing Reminders',
                           settings['fees'] ?? false, parentRef, 'fees'),
                       const Divider(height: 1),
                       _switchTile(context, 'Emergency Alerts',
@@ -459,6 +504,29 @@ class ParentProfilePage extends StatelessWidget {
             ),
           );
         },
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _confirmAndLogout(context),
+              icon: const Icon(Icons.logout),
+              label: Text(
+                'Logout',
+                style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w700),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
