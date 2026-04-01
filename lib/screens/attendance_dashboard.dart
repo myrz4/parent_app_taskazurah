@@ -17,6 +17,232 @@ class AttendancePage extends StatelessWidget {
   static const Color accent = Color(0xFFF44336);
   static const Color backgroundLight = Color(0xFFF6F8F7);
 
+  DateTime? _readTimestamp(Map<String, dynamic> data, List<String> keys) {
+    for (final key in keys) {
+      final value = data[key];
+      if (value is Timestamp) return value.toDate();
+      if (value is DateTime) return value;
+      if (value is String) {
+        final parsed = DateTime.tryParse(value);
+        if (parsed != null) return parsed;
+      }
+    }
+    return null;
+  }
+
+  String _readString(Map<String, dynamic> data, List<String> keys) {
+    for (final key in keys) {
+      final value = (data[key] ?? '').toString().trim();
+      if (value.isNotEmpty) return value;
+    }
+    return '';
+  }
+
+  String _methodLabel(String value, {required bool isCheckout}) {
+    switch (value.trim().toUpperCase()) {
+      case 'NFC':
+        return isCheckout ? 'NFC scan' : 'NFC tap';
+      case 'QR':
+      case 'PARENT_QR':
+        return 'Parent QR';
+      case 'MANUAL':
+      case 'ADMIN_MANUAL':
+        return 'Admin manual';
+      default:
+        return '';
+    }
+  }
+
+  String _sourceSummary(Map<String, dynamic> data) {
+    final checkInMethod = _methodLabel(
+      _readString(data, const ['checkInMethod', 'checkin_method']),
+      isCheckout: false,
+    );
+    final checkOutMethod = _methodLabel(
+      _readString(data, const ['checkOutMethod', 'checkout_method']),
+      isCheckout: true,
+    );
+    final parts = <String>[];
+    if (checkInMethod.isNotEmpty) {
+      parts.add('Check-in via $checkInMethod');
+    }
+    if (checkOutMethod.isNotEmpty) {
+      parts.add('Check-out via $checkOutMethod');
+    }
+    return parts.isEmpty ? 'Attendance source not recorded yet' : parts.join(' • ');
+  }
+
+  String _manualReason(Map<String, dynamic> data) {
+    return _readString(data, const ['manualEditReason', 'reason']);
+  }
+
+  String _correctionActor(Map<String, dynamic> data) {
+    final auditMetadata = data['auditMetadata'];
+    if (auditMetadata is Map) {
+      final lastActorName = (auditMetadata['lastActorName'] ?? '').toString().trim();
+      if (lastActorName.isNotEmpty) return lastActorName;
+    }
+    return _readString(data, const ['checkedOutByName', 'checkedInByName']);
+  }
+
+  Widget _adminCorrectedBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF4D6),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFE2BC55)),
+      ),
+      child: const Text(
+        'Admin corrected',
+        style: TextStyle(
+          color: Color(0xFF7A5C00),
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  String _auditActionLabel(String value) {
+    switch (value.trim().toUpperCase()) {
+      case 'NFC_CHECK_IN':
+        return 'NFC check-in';
+      case 'QR_CHECK_OUT':
+        return 'Parent QR checkout';
+      case 'MANUAL_CHECK_IN':
+        return 'Manual check-in';
+      case 'MANUAL_CHECK_OUT':
+        return 'Manual check-out';
+      case 'EDIT_RECORD':
+        return 'Record edited';
+      case 'REOPEN_RECORD':
+        return 'Record reopened';
+      case 'MARK_ABSENT':
+        return 'Marked absent';
+      default:
+        return value.trim().isEmpty ? 'Unknown action' : value;
+    }
+  }
+
+  String _formatAuditTimestamp(dynamic value) {
+    final dt = _readTimestamp({'value': value}, const ['value']);
+    if (dt == null) return '-';
+    return DateFormat('dd MMM yyyy, hh:mm a').format(dt);
+  }
+
+  String _formatAuditTimeRange(Map<String, dynamic> details) {
+    final previousIn = _formatAuditTimestamp(details['previousCheckInAt']);
+    final previousOut = _formatAuditTimestamp(details['previousCheckOutAt']);
+    final nextIn = _formatAuditTimestamp(details['nextCheckInAt']);
+    final nextOut = _formatAuditTimestamp(details['nextCheckOutAt']);
+    return 'Before: in $previousIn, out $previousOut\nAfter: in $nextIn, out $nextOut';
+  }
+
+  void _openAuditDialog({
+    required BuildContext context,
+    required String attendanceId,
+    required String dateLabel,
+  }) {
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Audit History • $dateLabel'),
+          content: SizedBox(
+            width: 720,
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('attendanceAudit')
+                  .where('attendanceId', isEqualTo: attendanceId)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Text('Failed to load audit history.\n${snapshot.error}');
+                }
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const SizedBox(
+                    height: 160,
+                    child: Center(child: CircularProgressIndicator(color: primary)),
+                  );
+                }
+
+                final docs = [...?snapshot.data?.docs];
+                docs.sort((a, b) {
+                  final left = _readTimestamp((a.data() as Map<String, dynamic>), const ['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0);
+                  final right = _readTimestamp((b.data() as Map<String, dynamic>), const ['createdAt']) ?? DateTime.fromMillisecondsSinceEpoch(0);
+                  return right.compareTo(left);
+                });
+
+                if (docs.isEmpty) {
+                  return const Text('No audit entries found for this attendance record.');
+                }
+
+                return ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: docs.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final data = docs[index].data() as Map<String, dynamic>;
+                    final details = data['details'] is Map<String, dynamic>
+                        ? data['details'] as Map<String, dynamic>
+                        : <String, dynamic>{};
+                    final actorName = (data['actorName'] ?? '').toString().trim();
+                    final reason = (data['reason'] ?? '').toString().trim();
+                    final method = (data['method'] ?? '').toString().trim();
+
+                    return Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE0E0E0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _auditActionLabel((data['action'] ?? '').toString()),
+                                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                                ),
+                              ),
+                              Text(
+                                _formatAuditTimestamp(data['createdAt']),
+                                style: const TextStyle(color: Colors.black54, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text('Updated by: ${actorName.isEmpty ? '-' : actorName}', style: const TextStyle(fontSize: 13)),
+                          Text('Method: ${method.isEmpty ? '-' : method}', style: const TextStyle(fontSize: 13)),
+                          Text('Reason: ${reason.isEmpty ? '-' : reason}', style: const TextStyle(fontSize: 13)),
+                          const SizedBox(height: 6),
+                          Text(
+                            _formatAuditTimeRange(details),
+                            style: const TextStyle(fontSize: 12, color: Colors.black87),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -44,7 +270,6 @@ class AttendancePage extends StatelessWidget {
                 }
 
                 if (snapshot.hasError) {
-                  print("🔥 FIRESTORE QUERY ERROR: ${snapshot.error}");
                   return Center(
                     child: Text(
                       'Firestore Error: ${snapshot.error}',
@@ -92,7 +317,7 @@ class AttendancePage extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     elevation: 8,
-                    shadowColor: primary.withOpacity(0.3),
+                    shadowColor: primary.withValues(alpha: 0.3),
                   ),
                   child: const Text(
                     'View History',
@@ -177,25 +402,20 @@ class AttendancePage extends StatelessWidget {
 
   // ==================== ATTENDANCE CARD ====================
   Widget _buildAttendanceCard(BuildContext context, Map<String, dynamic> data) {
-    final checkInRaw = data['check_in_time'];
-    final checkOutRaw = data['check_out_time'];
+    final checkInTime = _readTimestamp(
+      data,
+      const ['checkInAt', 'check_in_time', 'checkInTime', 'check_in'],
+    );
+    final checkOutTime = _readTimestamp(
+      data,
+      const ['checkOutAt', 'check_out_time', 'checkOutTime', 'check_out'],
+    );
     final teacher = data['teacher'] ?? 'Unknown Teacher';
-    final bool isPresent = (data['isPresent'] ?? false) as bool;
-
-    DateTime? checkInTime;
-    DateTime? checkOutTime;
-
-    if (checkInRaw is Timestamp) {
-      checkInTime = checkInRaw.toDate();
-    } else if (checkInRaw is String) {
-      checkInTime = DateTime.tryParse(checkInRaw);
-    }
-
-    if (checkOutRaw is Timestamp) {
-      checkOutTime = checkOutRaw.toDate();
-    } else if (checkOutRaw is String) {
-      checkOutTime = DateTime.tryParse(checkOutRaw);
-    }
+    final sourceSummary = _sourceSummary(data);
+    final manualReason = _manualReason(data);
+    final correctionActor = _correctionActor(data);
+    final attendanceId = _readString(data, const ['attendanceId']);
+    final isAdminCorrected = manualReason.isNotEmpty || sourceSummary.toLowerCase().contains('admin manual');
 
     if (checkInTime == null) return _buildNoRecordCard();
 
@@ -233,13 +453,19 @@ class AttendancePage extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isPresent ? 'Checked In' : 'Absent',
+                  checkOutTime != null
+                      ? 'Checked Out'
+                      : 'Checked In',
                   style: const TextStyle(
                     color: primary,
                     fontWeight: FontWeight.w700,
                     fontSize: 15,
                   ),
                 ),
+                if (isAdminCorrected) ...[
+                  const SizedBox(height: 8),
+                  _adminCorrectedBadge(),
+                ],
                 const SizedBox(height: 10),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -267,6 +493,47 @@ class AttendancePage extends StatelessWidget {
                               fontSize: 13,
                             ),
                           ),
+                          const SizedBox(height: 8),
+                          Text(
+                            sourceSummary,
+                            style: const TextStyle(
+                              color: Color(0xFF456556),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (manualReason.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Manual update reason: $manualReason',
+                              style: const TextStyle(
+                                color: Color(0xFF7A5C00),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                          if (isAdminCorrected && correctionActor.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Updated by: $correctionActor',
+                              style: const TextStyle(
+                                color: Color(0xFF7A5C00),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                          if (isAdminCorrected && attendanceId.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            TextButton(
+                              onPressed: () => _openAuditDialog(
+                                context: context,
+                                attendanceId: attendanceId,
+                                dateLabel: formattedDate,
+                              ),
+                              child: const Text('View audit history'),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -395,7 +662,7 @@ class AttendancePage extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.15),
+          color: color.withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Column(
@@ -544,7 +811,7 @@ class AttendancePage extends StatelessWidget {
 
 // ==================== PLACEHOLDER ====================
 class _StatCardPlaceholder extends StatelessWidget {
-  const _StatCardPlaceholder({super.key});
+  const _StatCardPlaceholder();
 
   @override
   Widget build(BuildContext context) {

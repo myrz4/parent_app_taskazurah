@@ -6,7 +6,6 @@ import 'package:intl/intl.dart';
 import 'billing_invoice_presenter.dart';
 import 'billing_invoice_status_repair.dart';
 import 'demo_checkout.dart';
-import 'redirect_checkout.dart';
 
 void main() {
   runApp(const InvoiceDetailsApp());
@@ -185,37 +184,9 @@ class InvoiceDetailsPage extends StatelessWidget {
               final currency = (data['currency'] ?? 'MYR').toString();
               final mode = (data['mode'] ?? 'dummy').toString().toLowerCase();
               final provider = (data['provider'] ?? 'dummy').toString().toLowerCase();
-              final checkoutUrl = (data['checkoutUrl'] ?? '').toString().trim();
 
-              if (mode == 'redirect') {
-                if (checkoutUrl.isEmpty) {
-                  throw Exception(data['reason'] ?? 'payment-provider-create-failed');
-                }
-
-                final ok = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(
-                    builder: (_) => RedirectCheckoutPage(
-                      parentId: parentId,
-                      invoiceId: invoiceId,
-                      sessionId: sessionId,
-                      amountSen: amountSen,
-                      currency: currency,
-                      provider: provider,
-                      checkoutUrl: checkoutUrl,
-                    ),
-                  ),
-                );
-
-                if (ok == true && context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Payment successful.')),
-                  );
-                }
-                return;
-              }
-
-              if (mode != 'dummy') {
-                throw Exception(data['reason'] ?? 'payment-provider-not-implemented');
+              if (provider != 'dummy' || mode != 'dummy') {
+                throw Exception('This rollout only supports the dummy payment simulator.');
               }
 
               final ok = await Navigator.of(context).push<bool>(
@@ -232,7 +203,7 @@ class InvoiceDetailsPage extends StatelessWidget {
 
               if (ok == true && context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Payment successful.')),
+                  const SnackBar(content: Text('Demo payment completed successfully.')),
                 );
               }
             }
@@ -441,15 +412,30 @@ class InvoiceDetailsPage extends StatelessWidget {
                   ),
                   child: Column(
                     children: [
+                      if (!isPaid) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: InvoiceDetailsApp.primary.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            'Current rollout uses a realistic dummy payment simulator. No real bank or payment gateway will be charged.',
+                            style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       _lineItem(
                         label: 'Payment Method',
-                        value: isPaid ? (paidMethod.isEmpty ? 'Online Banking' : paidMethod) : '—',
+                        value: isPaid ? (paidMethod.isEmpty ? 'Demo Online Banking Simulator' : '$paidMethod (simulated)') : '—',
                         valueColor: textColor,
                       ),
                       const SizedBox(height: 8),
                       _lineItem(
-                        label: 'Bank',
-                        value: isPaid ? (paidBank.isEmpty ? '—' : paidBank) : '—',
+                        label: 'Simulated Bank',
+                        value: isPaid ? (paidBank.isEmpty ? 'Demo Bank Selection' : paidBank) : '—',
                         valueColor: textColor,
                       ),
                       const SizedBox(height: 8),
@@ -502,10 +488,17 @@ class InvoiceDetailsPage extends StatelessWidget {
                     onPressed: () async {
                       try {
                         await startPayFlow();
-                      } catch (_) {
+                      } catch (error) {
                         if (!context.mounted) return;
+                        final message = error.toString();
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Unable to start payment.')),
+                          SnackBar(
+                            content: Text(
+                              message.contains('dummy payment simulator')
+                                  ? 'This rollout only supports the dummy payment simulator.'
+                                  : 'Unable to start the demo payment flow.',
+                            ),
+                          ),
                         );
                       }
                     },
@@ -516,7 +509,7 @@ class InvoiceDetailsPage extends StatelessWidget {
                       elevation: 4,
                       shadowColor: InvoiceDetailsApp.primary.withValues(alpha: 0.25),
                     ),
-                    child: const Text('Pay This Invoice', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white)),
+                    child: const Text('Run Demo Payment', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white)),
                   )
                 else
                   ElevatedButton(

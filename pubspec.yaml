@@ -40,7 +40,6 @@ dependencies:
   # ───── Share / Save QR ─────
   share_plus: ^11.1.0
   path_provider: ^2.1.5
-  url_launcher: ^6.3.1
 
   # ───── App Lock (PIN / Biometrics) ─────
   local_auth: ^2.3.0

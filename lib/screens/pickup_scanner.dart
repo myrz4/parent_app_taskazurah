@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:intl/intl.dart';
 
 class PickupScannerPage extends StatefulWidget {
@@ -22,6 +23,27 @@ class _PickupScannerPageState extends State<PickupScannerPage> {
   bool _hasScanned = false;
   bool _torchOn = false; // ✅ Manual torch state tracking
   static const Color primary = Color(0xFF7ACB9E);
+
+  String _reasonToMessage(String reason) {
+    switch (reason) {
+      case 'pickup-token-not-found':
+        return 'QR tidak sah atau tiada dalam rekod.';
+      case 'pickup-token-expired':
+        return 'QR ini telah tamat tempoh.';
+      case 'pickup-token-already-used':
+        return 'QR ini sudah digunakan.';
+      case 'attendance-not-found':
+        return 'Rekod kehadiran tiada untuk hari ini.';
+      case 'attendance-not-checked-in':
+        return 'Kanak-kanak belum check-in.';
+      case 'attendance-already-closed':
+        return 'Attendance sudah ditutup.';
+      case 'staff-only':
+        return 'Hanya guru atau admin boleh sahkan pickup.';
+      default:
+        return 'Pengesahan QR gagal.';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -126,107 +148,23 @@ class _PickupScannerPageState extends State<PickupScannerPage> {
         return;
       }
 
-      // 🔑 Extract token daripada "QR_XXXXXX"
       final tokenValue = qrCode.replaceFirst("QR_", "").trim();
-
-      // 1️⃣ Cari parent pemilik token semasa
-      final parentSnap = await FirebaseFirestore.instance
-          .collection('parents')
-          .where('dailyQrToken', isEqualTo: tokenValue)
-          .limit(1)
-          .get();
-
-      if (parentSnap.docs.isEmpty) {
-        _showResult(false, "QR tidak sah atau tiada dalam rekod.");
-        return;
-      }
-
-      final parentDoc = parentSnap.docs.first;
-      final parentData = parentDoc.data();
-      final parentRef = parentDoc.reference;
-
-      // Ambil maklumat paparan
-      final parentName = parentData['parentName'] ?? 'Unknown';
-        // No designated teacher per parent/child.
-        final teacherName = 'Teacher';
-      final repName = parentData['representativeName'] ?? '-';
-
-      // 2️⃣ Dapatkan dokumen token sebenar
-      final tokenRef = parentRef.collection('tokens').doc(tokenValue);
-      final tokenSnap = await tokenRef.get();
-
-      if (!tokenSnap.exists) {
-        _showResult(false, "Token tidak wujud atau sudah dipadam.");
-        return;
-      }
-
-      final tokenData = tokenSnap.data()!;
-      final bool used = tokenData['used'] ?? false;
-      final Timestamp? expiredAtTs = tokenData['expiredAt'];
-      final DateTime? expiredAt = expiredAtTs?.toDate();
-
-        final String childId = (tokenData['childId'] ?? parentData['childId'] ?? '').toString().trim();
-        final String childName =
-          (tokenData['childName'] ?? parentData['childName'] ?? 'Unknown').toString().trim();
-
-      // 3️⃣ Semak status token
-      if (used) {
-        _showResult(false, "QR ini sudah digunakan.");
-        return;
-      }
-      if (expiredAt != null && DateTime.now().isAfter(expiredAt)) {
-        _showResult(false, "QR ini telah tamat tempoh.");
-        return;
-      }
-
-      // 4️⃣ Cari attendance hari ini (ikut childId)
-      final todayStart = DateTime(
-        DateTime.now().year,
-        DateTime.now().month,
-        DateTime.now().day,
-      );
-      final todayEnd = todayStart.add(const Duration(days: 1));
-
-      final attendanceSnap = await FirebaseFirestore.instance
-          .collection('attendance')
-          .where('childId', isEqualTo: childId)
-          .where('checkIn',
-              isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
-          .where('checkIn', isLessThan: Timestamp.fromDate(todayEnd))
-          .limit(1)
-          .get();
-
-      if (attendanceSnap.docs.isEmpty) {
-        _showResult(false, "Rekod kehadiran tiada untuk hari ini.");
-        return;
-      }
-
-      final attRef = attendanceSnap.docs.first.reference;
-
-      // 5️⃣ Update attendance (checkout)
-      await attRef.update({
-        'checkOut': FieldValue.serverTimestamp(),
-        'manualCheckout': true,
-        'pickupBy': repName,
-        'verifiedBy': teacherName,
-        'pickupAt': FieldValue.serverTimestamp(),
+      final callable = FirebaseFunctions.instanceFor(region: 'asia-southeast1')
+          .httpsCallable('attendanceCheckoutWithParentQr');
+      final response = await callable.call<Map<String, dynamic>>({
+        'qrToken': tokenValue,
+        'teacherName': 'Teacher',
       });
+      final result = Map<String, dynamic>.from(response.data ?? const <String, dynamic>{});
+      if (result['ok'] != true) {
+        _showResult(false, _reasonToMessage((result['reason'] ?? '').toString()));
+        return;
+      }
 
-      // 6️⃣ Tambah pickup log
-      final pickupLog = await attRef.collection('pickup_logs').add({
-        'timestamp': FieldValue.serverTimestamp(),
-        'parentName': parentName,
-        'representative': repName,
-        'teacher': teacherName,
-        'childName': childName,
-      });
-
-      // 7️⃣ Tandakan token digunakan (single-use)
-      await tokenRef.update({
-        'used': true,
-        'usedAt': FieldValue.serverTimestamp(),
-        'pickupLogId': pickupLog.id,
-      });
+      final parentName = (result['parentName'] ?? 'Unknown').toString();
+      final childName = (result['childName'] ?? 'Unknown').toString();
+      final repName = (result['representativeName'] ?? '-').toString();
+      final teacherName = 'Teacher';
 
       // 8️⃣ Papar kejayaan
       _showResult(

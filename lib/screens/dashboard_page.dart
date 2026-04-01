@@ -1,6 +1,5 @@
 import 'dart:math';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -71,6 +70,84 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
         fontWeight: FontWeight.w500,
         color: Colors.black54,
       );
+
+  DateTime? _readAttendanceTimestamp(Map<String, dynamic> data, List<String> keys) {
+    for (final key in keys) {
+      final value = data[key];
+      if (value is Timestamp) return value.toDate();
+      if (value is DateTime) return value;
+      if (value is String) {
+        final parsed = DateTime.tryParse(value);
+        if (parsed != null) return parsed;
+      }
+    }
+    return null;
+  }
+
+  String _readAttendanceString(Map<String, dynamic> data, List<String> keys) {
+    for (final key in keys) {
+      final value = (data[key] ?? '').toString().trim();
+      if (value.isNotEmpty) return value;
+    }
+    return '';
+  }
+
+  String _attendanceMethodLabel(String value, {required bool isCheckout}) {
+    switch (value.trim().toUpperCase()) {
+      case 'NFC':
+        return isCheckout ? 'NFC scan' : 'NFC tap';
+      case 'QR':
+      case 'PARENT_QR':
+        return 'Parent QR';
+      case 'MANUAL':
+      case 'ADMIN_MANUAL':
+        return 'Admin manual';
+      default:
+        return '';
+    }
+  }
+
+  String _attendanceSourceSummary(Map<String, dynamic> data) {
+    final inMethod = _attendanceMethodLabel(
+      _readAttendanceString(data, const ['checkInMethod', 'checkin_method']),
+      isCheckout: false,
+    );
+    final outMethod = _attendanceMethodLabel(
+      _readAttendanceString(data, const ['checkOutMethod', 'checkout_method']),
+      isCheckout: true,
+    );
+    final parts = <String>[];
+    if (inMethod.isNotEmpty) parts.add('In: $inMethod');
+    if (outMethod.isNotEmpty) parts.add('Out: $outMethod');
+    return parts.join(' • ');
+  }
+
+  String _attendanceCorrectionActor(Map<String, dynamic> data) {
+    final auditMetadata = data['auditMetadata'];
+    if (auditMetadata is Map) {
+      final lastActorName = (auditMetadata['lastActorName'] ?? '').toString().trim();
+      if (lastActorName.isNotEmpty) return lastActorName;
+    }
+    return _readAttendanceString(data, const ['checkedOutByName', 'checkedInByName']);
+  }
+
+  Widget _adminCorrectedBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF4D6),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFE2BC55)),
+      ),
+      child: Text(
+        'Admin corrected',
+        style: _caption.copyWith(
+          color: const Color(0xFF7A5C00),
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
 
   List<_ChildChoice> _extractChildren(Map<String, dynamic> parentData) {
     final List<_ChildChoice> out = [];
@@ -348,7 +425,7 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                 gradient: LinearGradient(
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
-                                  colors: [cardBg, primary.withOpacity(0.03)],
+                                  colors: [cardBg, primary.withValues(alpha: 0.03)],
                                 ),
                               ),
                               padding: EdgeInsets.all(_s[4]),
@@ -367,7 +444,7 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                   if (children.length > 1) ...[
                                     SizedBox(height: _s[3]),
                                     DropdownButtonFormField<String>(
-                                      value: selectedChild.childId,
+                                      initialValue: selectedChild.childId,
                                       decoration: const InputDecoration(
                                         labelText: 'Select child',
                                         border: OutlineInputBorder(),
@@ -403,7 +480,7 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                   begin: Alignment.topCenter,
                                   end: Alignment.bottomCenter,
                                   colors: [
-                                    const Color.fromARGB(255, 241, 255, 247).withOpacity(0.05),
+                                    const Color.fromARGB(255, 241, 255, 247).withValues(alpha: 0.05),
                                     cardBg,
                                   ],
                                 ),
@@ -421,31 +498,53 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                   Color statusColor = Colors.orange;
                                   IconData statusIcon = Icons.access_time;
                                   bool glow = false;
+                                  bool isAdminCorrected = false;
 
                                   if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
                                     final data = snapshot.data!.docs.first.data() as Map<String, dynamic>;
-                                    final isPresent = data['isPresent'] ?? false;
-                                    final checkInRaw = data['check_in_time'];
-                                    DateTime? checkInTime;
+                                    final checkInTime = _readAttendanceTimestamp(
+                                      data,
+                                      const ['checkInAt', 'check_in_time', 'checkInTime', 'check_in'],
+                                    );
+                                    final checkOutTime = _readAttendanceTimestamp(
+                                      data,
+                                      const ['checkOutAt', 'check_out_time', 'checkOutTime', 'check_out'],
+                                    );
+                                    final sourceSummary = _attendanceSourceSummary(data);
+                                    final manualReason = _readAttendanceString(
+                                      data,
+                                      const ['manualEditReason', 'reason'],
+                                    );
+                                    final correctionActor = _attendanceCorrectionActor(data);
+                                    isAdminCorrected =
+                                      manualReason.isNotEmpty || sourceSummary.toLowerCase().contains('admin manual');
 
-                                    if (checkInRaw is Timestamp) {
-                                      checkInTime = checkInRaw.toDate().add(const Duration(hours: 8));
-                                    } else if (checkInRaw is String) {
-                                      checkInTime = DateTime.tryParse(checkInRaw)?.add(const Duration(hours: 8));
-                                    }
-
-                                    if (isPresent == true) {
+                                    if (checkOutTime != null) {
+                                      statusText = 'Checked Out';
+                                      statusIcon = Icons.logout_rounded;
+                                      statusColor = const Color.fromARGB(255, 76, 142, 107);
+                                      subtitleText = 'Jam ${DateFormat('hh:mm a').format(checkOutTime)}';
+                                    } else if (checkInTime != null) {
                                       statusText = 'Checked In';
                                       statusIcon = Icons.check_circle;
                                       statusColor = const Color.fromARGB(255, 111, 177, 140);
                                       glow = true;
-                                      subtitleText =
-                                          checkInTime != null ? 'Jam ${DateFormat('hh:mm a').format(checkInTime)}' : '-';
+                                      subtitleText = 'Jam ${DateFormat('hh:mm a').format(checkInTime)}';
                                     } else {
                                       statusText = 'Absent';
                                       statusIcon = Icons.cancel;
                                       statusColor = Colors.red;
                                       subtitleText = 'Tidak hadir hari ini';
+                                    }
+
+                                    if (sourceSummary.isNotEmpty) {
+                                      subtitleText = '$subtitleText\n$sourceSummary';
+                                    }
+                                    if (manualReason.isNotEmpty) {
+                                      subtitleText = '$subtitleText\nReason: $manualReason';
+                                    }
+                                    if (isAdminCorrected && correctionActor.isNotEmpty) {
+                                      subtitleText = '$subtitleText\nUpdated by: $correctionActor';
                                     }
                                   }
 
@@ -493,12 +592,12 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                           padding: EdgeInsets.all(_s[3]),
                                           decoration: BoxDecoration(
                                             borderRadius: BorderRadius.circular(_radius),
-                                            color: statusColor.withOpacity(0.08),
-                                            border: Border.all(color: statusColor.withOpacity(0.4)),
+                                            color: statusColor.withValues(alpha: 0.08),
+                                            border: Border.all(color: statusColor.withValues(alpha: 0.4)),
                                             boxShadow: glow
                                                 ? [
                                                     BoxShadow(
-                                                      color: statusColor.withOpacity(0.35),
+                                                      color: statusColor.withValues(alpha: 0.35),
                                                       blurRadius: 20,
                                                       spreadRadius: 1,
                                                     )
@@ -511,7 +610,7 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                                 padding: EdgeInsets.all(_s[2]),
                                                 decoration: BoxDecoration(
                                                   shape: BoxShape.circle,
-                                                  color: statusColor.withOpacity(0.15),
+                                                  color: statusColor.withValues(alpha: 0.15),
                                                 ),
                                                 child: Icon(statusIcon, color: statusColor, size: 30),
                                               ),
@@ -520,6 +619,10 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                                 crossAxisAlignment: CrossAxisAlignment.start,
                                                 children: [
                                                   Text(statusText, style: _subtitle.copyWith(color: statusColor)),
+                                                  if (snapshot.hasData && snapshot.data!.docs.isNotEmpty && isAdminCorrected) ...[
+                                                    SizedBox(height: _s[1]),
+                                                    _adminCorrectedBadge(),
+                                                  ],
                                                   Text(subtitleText, style: _caption),
                                                 ],
                                               ),
@@ -675,7 +778,7 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [cardBg, primary.withOpacity(0.08)],
+              colors: [cardBg, primary.withValues(alpha: 0.08)],
             ),
           ),
           child: Column(
@@ -688,7 +791,7 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: primary.withOpacity(0.5),
+                      color: primary.withValues(alpha: 0.5),
                       blurRadius: 12,
                       offset: const Offset(0, 6),
                     ),
@@ -722,7 +825,7 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
         errorBuilder: (_, __, ___) => Container(
           width: size,
           height: size,
-          color: primary.withOpacity(0.15),
+          color: primary.withValues(alpha: 0.15),
           child: Icon(Icons.person, color: primary, size: size * 0.6),
         ),
       ),
@@ -786,7 +889,7 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                 borderRadius: BorderRadius.circular(32),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
+                    color: Colors.black.withValues(alpha: 0.2),
                     blurRadius: 30,
                     offset: const Offset(0, 10),
                   ),
@@ -926,8 +1029,8 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: isValid
-                                ? [primary.withOpacity(0.2), primary.withOpacity(0.1)]
-                                : [Colors.red.withOpacity(0.2), Colors.red.withOpacity(0.1)],
+                                ? [primary.withValues(alpha: 0.2), primary.withValues(alpha: 0.1)]
+                                : [Colors.red.withValues(alpha: 0.2), Colors.red.withValues(alpha: 0.1)],
                           ),
                           borderRadius: BorderRadius.circular(30),
                           border: Border.all(color: isValid ? primary : Colors.red, width: 1.5),
