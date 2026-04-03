@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -129,6 +130,59 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
       if (lastActorName.isNotEmpty) return lastActorName;
     }
     return _readAttendanceString(data, const ['checkedOutByName', 'checkedInByName']);
+  }
+
+  Future<_PickupEligibility> _resolvePickupEligibility({
+    required String parentId,
+    required String desiredChildId,
+    required DocumentReference desiredChildRef,
+  }) async {
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'asia-southeast1')
+          .httpsCallable('attendanceParentPickupEligibility');
+      final response = await callable.call({
+        'parentId': parentId,
+        'childId': desiredChildId,
+        'childRef': desiredChildRef.path,
+      });
+
+      final raw = response.data;
+      final data = raw is Map ? Map<String, dynamic>.from(raw) : const <String, dynamic>{};
+      final ok = data['ok'] == true;
+      final allowed = data['allowed'] == true;
+      final message = (data['message'] ?? '').toString().trim();
+      final reason = (data['reason'] ?? '').toString().trim();
+
+      if (ok && allowed) {
+        return const _PickupEligibility(allowed: true, message: '');
+      }
+
+      if (message.isNotEmpty) {
+        return _PickupEligibility(allowed: false, message: message);
+      }
+
+      if (reason == 'attendance-already-closed') {
+        return const _PickupEligibility(
+          allowed: false,
+          message: 'Pickup QR is no longer available because your child has already checked out today.',
+        );
+      }
+
+      return const _PickupEligibility(
+        allowed: false,
+        message: 'Pickup QR will be available after your child checks in today.',
+      );
+    } on FirebaseFunctionsException {
+      return const _PickupEligibility(
+        allowed: false,
+        message: 'Unable to verify pickup eligibility right now. Please try again.',
+      );
+    } catch (_) {
+      return const _PickupEligibility(
+        allowed: false,
+        message: 'Unable to verify pickup eligibility right now. Please try again.',
+      );
+    }
   }
 
   Widget _adminCorrectedBadge() {
@@ -863,12 +917,6 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
           return byteData?.buffer.asUint8List();
         }
 
-        String tokenFromQrData(String qrData) {
-          final v = qrData.trim();
-          if (v.startsWith('QR_') && v.length > 3) return v.substring(3);
-          return '';
-        }
-
         return StatefulBuilder(
           builder: (context, setModalState) {
             Future<_QrInfo> loadQr() async {
@@ -945,10 +993,16 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                   final qrData = info?.data ?? '';
                   final isValid = info?.valid ?? false;
                   final expiresAt = info?.expiresAt;
+                    final pickupMessage = info?.message ?? '';
 
                   final expiryLabel = expiresAt == null
-                      ? (isValid ? 'Valid (short-lived)' : 'Expired')
+                      ? (isValid ? 'Valid (short-lived)' : 'Not available yet')
                       : 'Valid until ${DateFormat('hh:mm a').format(expiresAt)}';
+                    final helperText = isValid
+                      ? 'You can share this QR with a relative (no account needed). It expires automatically.'
+                      : (pickupMessage.isNotEmpty
+                        ? pickupMessage
+                        : 'Pickup QR will appear after your child checks in today.');
 
                   return SingleChildScrollView(
                     child: Column(
@@ -963,7 +1017,7 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                       Text('Shareable Pickup QR', style: _title.copyWith(fontSize: 22)),
                       SizedBox(height: _s[2]),
                       Text(
-                        'You can share this QR with a relative (no account needed). It expires automatically.',
+                        helperText,
                         style: _body,
                         textAlign: TextAlign.center,
                       ),
@@ -989,7 +1043,11 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                 ),
                                 const SizedBox(height: 10),
                                 qrData.isEmpty
-                                    ? Icon(Icons.qr_code_2, size: 200, color: Colors.grey[400])
+                                  ? Icon(
+                                    isValid ? Icons.qr_code_2 : Icons.lock_clock_outlined,
+                                    size: 200,
+                                    color: Colors.grey[400],
+                                    )
                                     : QrImageView(
                                         data: qrData,
                                         size: 240,
@@ -1073,45 +1131,47 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                           ),
-                          onPressed: () async {
-                            try {
-                              final parentSnap =
-                                  await FirebaseFirestore.instance.collection('parents').doc(parentId).get();
-                              final data = parentSnap.data() ?? {};
+                          onPressed: isValid
+                              ? () async {
+                                  try {
+                                    final parentSnap =
+                                        await FirebaseFirestore.instance.collection('parents').doc(parentId).get();
+                                    final data = parentSnap.data() ?? {};
 
-                              final newInfo = await _createPickupToken(
-                                parentId: parentId,
-                                parentData: data,
-                                childId: childId,
-                                childName: childName,
-                                childRef: childRef,
-                                representativeName: repNameCtrl.text,
-                                representativeRole: repRoleCtrl.text,
-                                ttlMinutes: 15,
-                              );
+                                    final newInfo = await _createPickupToken(
+                                      parentId: parentId,
+                                      parentData: data,
+                                      childId: childId,
+                                      childName: childName,
+                                      childRef: childRef,
+                                      representativeName: repNameCtrl.text,
+                                      representativeRole: repRoleCtrl.text,
+                                      ttlMinutes: 15,
+                                    );
 
-                              setModalState(() => reloadTick++);
+                                    setModalState(() => reloadTick++);
 
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('New QR generated: ${newInfo.token}'),
-                                    duration: const Duration(seconds: 2),
-                                  ),
-                                );
-                              }
-                            } catch (e) {
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Failed to generate QR: $e'),
-                                    duration: const Duration(seconds: 3),
-                                  ),
-                                );
-                              }
-                            }
-                          },
-                          label: const Text('Generate New QR (15 min)'),
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('New QR generated: ${newInfo.token}'),
+                                          duration: const Duration(seconds: 2),
+                                        ),
+                                      );
+                                    }
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Failed to generate QR: $e'),
+                                          duration: const Duration(seconds: 3),
+                                        ),
+                                      );
+                                    }
+                                  }
+                                }
+                              : null,
+                          label: Text(isValid ? 'Generate New QR (15 min)' : 'Available After Check-In'),
                         ),
                       ),
                       SizedBox(height: _s[2]),
@@ -1129,7 +1189,6 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                   : () async {
                                       try {
                                         // Best-effort: persist the optional fields for pickup logging.
-                                        final token = tokenFromQrData(qrData);
                                         final parentRef = FirebaseFirestore.instance.collection('parents').doc(parentId);
                                         await parentRef.set(
                                           {
@@ -1138,15 +1197,6 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                           },
                                           SetOptions(merge: true),
                                         );
-                                        if (token.isNotEmpty) {
-                                          await parentRef.collection('tokens').doc(token).set(
-                                            {
-                                              'representativeName': repNameCtrl.text.trim(),
-                                              'representativeRole': repRoleCtrl.text.trim(),
-                                            },
-                                            SetOptions(merge: true),
-                                          );
-                                        }
 
                                         final bytes = await capturePng();
                                         if (bytes == null || bytes.isEmpty) {
@@ -1264,6 +1314,20 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
     required String desiredChildName,
     required DocumentReference desiredChildRef,
   }) async {
+    final pickupEligibility = await _resolvePickupEligibility(
+      parentId: parentId,
+      desiredChildId: desiredChildId,
+      desiredChildRef: desiredChildRef,
+    );
+    if (!pickupEligibility.allowed) {
+      return _QrInfo(
+        valid: false,
+        data: '',
+        expiresAt: null,
+        message: pickupEligibility.message,
+      );
+    }
+
     final token = (parentData['dailyQrToken'] ?? '').toString().trim();
     if (token.isNotEmpty) {
       final tokenSnap = await FirebaseFirestore.instance
@@ -1283,7 +1347,7 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
         final bool childMatches = tokenChildId.isNotEmpty && tokenChildId == desiredChildId;
 
         if (!used && !expired && childMatches) {
-          return _QrInfo(valid: true, data: 'QR_$token', expiresAt: expiredAt);
+          return _QrInfo(valid: true, data: 'QR_$token', expiresAt: expiredAt, message: '');
         }
       }
     }
@@ -1298,7 +1362,7 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
       representativeRole: (parentData['representativeRole'] ?? '').toString(),
       ttlMinutes: 15,
     );
-    return _QrInfo(valid: true, data: 'QR_${created.token}', expiresAt: created.expiresAt);
+    return _QrInfo(valid: true, data: 'QR_${created.token}', expiresAt: created.expiresAt, message: '');
   }
 
   Future<_TokenInfo> _createPickupToken({
@@ -1360,8 +1424,16 @@ class _QrInfo {
   final bool valid;
   final String data;
   final DateTime? expiresAt;
+  final String message;
 
-  const _QrInfo({required this.valid, required this.data, required this.expiresAt});
+  const _QrInfo({required this.valid, required this.data, required this.expiresAt, required this.message});
+}
+
+class _PickupEligibility {
+  final bool allowed;
+  final String message;
+
+  const _PickupEligibility({required this.allowed, required this.message});
 }
 
 class _TokenInfo {
