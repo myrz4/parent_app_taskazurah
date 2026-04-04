@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:parent_app_taskazurah/screens/attendance_record_resolution.dart'
+  as attendance_resolution;
 
 class AttendancePage extends StatelessWidget {
   final String childId;
   final String childName;
+  final String? parentId;
+  final String? childRefPath;
 
   const AttendancePage({
     super.key,
     required this.childId,
     required this.childName,
+    this.parentId,
+    this.childRefPath,
   });
 
   static const Color primary = Color(0xFF7ACB9E);
@@ -243,6 +249,82 @@ class AttendancePage extends StatelessWidget {
     );
   }
 
+  bool get _hasResolvedTodayContext {
+    return (parentId ?? '').trim().isNotEmpty &&
+        (childRefPath ?? '').trim().isNotEmpty;
+  }
+
+  Widget _buildTodayAttendance(BuildContext context) {
+    if (_hasResolvedTodayContext) {
+      return StreamBuilder<attendance_resolution.ResolvedTodayAttendanceStatus>(
+        stream: attendance_resolution.attendanceWatchResolvedTodayStatus(
+          parentId: parentId!.trim(),
+          childId: childId.trim(),
+          childRefPath: childRefPath!.trim(),
+        ),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              snapshot.data == null) {
+            return const Center(
+              child: CircularProgressIndicator(color: primary),
+            );
+          }
+
+          final data = snapshot.data?.attendance;
+          if (data == null || data.isEmpty) {
+            return _buildNoRecordCard();
+          }
+
+          final docId = (data['id'] ?? '').toString().trim();
+          return _buildAttendanceCard(
+            context,
+            data,
+            docId: docId.isEmpty
+                ? '${DateFormat('yyyy-MM-dd').format(DateTime.now())}_$childId'
+                : docId,
+          );
+        },
+      );
+    }
+
+    return StreamBuilder<List<QueryDocumentSnapshot>>(
+      stream: attendance_resolution.attendanceWatchChildDocs(
+        childId.trim(),
+      ),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: primary),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              'Firestore Error: ${snapshot.error}',
+              style: const TextStyle(color: Colors.red, fontSize: 12),
+            ),
+          );
+        }
+
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return _buildNoRecordCard();
+        }
+
+        final todayDoc = attendance_resolution.resolveAttendanceDocForDay(
+          snapshot.data!,
+          DateTime.now(),
+        );
+        if (todayDoc == null) {
+          return _buildNoRecordCard();
+        }
+
+        final data = todayDoc.data() as Map<String, dynamic>;
+        return _buildAttendanceCard(context, data, docId: todayDoc.id);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -254,39 +336,7 @@ class AttendancePage extends StatelessWidget {
             _buildHeader(context),
             const SizedBox(height: 8),
 
-            // === TODAY ATTENDANCE ===
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('attendance')
-                  .where('childId', isEqualTo: childId.trim())
-                  .orderBy('check_in_time', descending: true)
-                  .limit(1)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: primary),
-                  );
-                }
-
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text(
-                      'Firestore Error: ${snapshot.error}',
-                      style: const TextStyle(color: Colors.red, fontSize: 12),
-                    ),
-                  );
-                }
-
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return _buildNoRecordCard();
-                }
-
-                final data =
-                    snapshot.data!.docs.first.data() as Map<String, dynamic>;
-                return _buildAttendanceCard(context, data);
-              },
-            ),
+            _buildTodayAttendance(context),
 
             const SizedBox(height: 16),
             _buildMonthlySummary(childId),
@@ -401,7 +451,11 @@ class AttendancePage extends StatelessWidget {
   }
 
   // ==================== ATTENDANCE CARD ====================
-  Widget _buildAttendanceCard(BuildContext context, Map<String, dynamic> data) {
+  Widget _buildAttendanceCard(
+    BuildContext context,
+    Map<String, dynamic> data, {
+    required String docId,
+  }) {
     final checkInTime = _readTimestamp(
       data,
       const ['checkInAt', 'check_in_time', 'checkInTime', 'check_in'],
@@ -415,14 +469,26 @@ class AttendancePage extends StatelessWidget {
     final manualReason = _manualReason(data);
     final correctionActor = _correctionActor(data);
     final attendanceId = _readString(data, const ['attendanceId']);
+    final effectiveAttendanceId = attendanceId.isNotEmpty ? attendanceId : docId;
     final isAdminCorrected = manualReason.isNotEmpty || sourceSummary.toLowerCase().contains('admin manual');
 
-    if (checkInTime == null) return _buildNoRecordCard();
-
-    final formattedDate = DateFormat('MMMM dd, yyyy').format(checkInTime);
-    final formattedCheckIn = DateFormat('hh:mm a').format(checkInTime);
+    final displayDate = attendance_resolution.attendanceBestRecordDate(
+      data,
+      docId: docId,
+    );
+    final formattedDate = DateFormat('MMMM dd, yyyy').format(displayDate);
+    final formattedCheckIn =
+      checkInTime != null ? DateFormat('hh:mm a').format(checkInTime) : '-';
     final formattedCheckOut =
         checkOutTime != null ? DateFormat('hh:mm a').format(checkOutTime) : '-';
+    final headline = checkOutTime != null
+      ? 'Checked Out'
+      : checkInTime != null
+        ? 'Checked In'
+        : 'Absent';
+    final headlineColor = checkOutTime != null || checkInTime != null
+      ? primary
+      : accent;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -453,11 +519,9 @@ class AttendancePage extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  checkOutTime != null
-                      ? 'Checked Out'
-                      : 'Checked In',
-                  style: const TextStyle(
-                    color: primary,
+                  headline,
+                  style: TextStyle(
+                    color: headlineColor,
                     fontWeight: FontWeight.w700,
                     fontSize: 15,
                   ),
@@ -487,7 +551,9 @@ class AttendancePage extends StatelessWidget {
                           Text(
                             checkOutTime != null
                                 ? 'Check-Out: $formattedCheckOut'
-                                : 'Not checked out yet',
+                                : checkInTime != null
+                                    ? 'Not checked out yet'
+                                    : 'Not checked in',
                             style: const TextStyle(
                               color: Color(0xFF648772),
                               fontSize: 13,
@@ -523,12 +589,12 @@ class AttendancePage extends StatelessWidget {
                               ),
                             ),
                           ],
-                          if (isAdminCorrected && attendanceId.isNotEmpty) ...[
+                          if (isAdminCorrected && effectiveAttendanceId.isNotEmpty) ...[
                             const SizedBox(height: 10),
                             TextButton(
                               onPressed: () => _openAuditDialog(
                                 context: context,
-                                attendanceId: attendanceId,
+                                attendanceId: effectiveAttendanceId,
                                 dateLabel: formattedDate,
                               ),
                               child: const Text('View audit history'),
@@ -565,40 +631,34 @@ class AttendancePage extends StatelessWidget {
   // ==================== MONTHLY SUMMARY ====================
   Widget _buildMonthlySummary(String childId) {
     final now = DateTime.now();
-    final startOfMonth = DateTime(now.year, now.month, 1);
-    final endOfMonth = DateTime(now.year, now.month + 1, 0);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('attendance')
-            .where('childId', isEqualTo: childId)
-            .where('check_in_time',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
-            .where('check_in_time',
-                isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
-            .snapshots(),
+      child: StreamBuilder<List<QueryDocumentSnapshot>>(
+        stream: attendance_resolution.attendanceWatchChildDocs(childId),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const LinearProgressIndicator();
           }
 
-          final docs = snapshot.data!.docs;
+          final docs = attendance_resolution.attendanceDocsForMonth(
+            snapshot.data!,
+            now,
+          );
           int present = 0, absent = 0, late = 0;
 
           for (var doc in docs) {
             final data = doc.data() as Map<String, dynamic>;
-            final isPresent = data['isPresent'] ?? false;
-            final ts = data['check_in_time'] as Timestamp?;
-            if (isPresent == true && ts != null) {
-              final t = ts.toDate();
-              if (t.hour > 8 || (t.hour == 8 && t.minute > 0)) {
+            final checkInTime = attendance_resolution.attendanceCheckInTime(data);
+            final checkOutTime = attendance_resolution.attendanceCheckOutTime(data);
+            if (checkInTime != null || checkOutTime != null) {
+              final t = checkInTime;
+              if (t != null && (t.hour > 8 || (t.hour == 8 && t.minute > 0))) {
                 late++;
               } else {
                 present++;
               }
-            } else if (isPresent == false) {
+            } else {
               absent++;
             }
           }
@@ -681,20 +741,11 @@ class AttendancePage extends StatelessWidget {
   // ==================== STAT CARDS ====================
   Widget _buildStatCards(String childId) {
     final now = DateTime.now();
-    final startOfMonth = DateTime(now.year, now.month, 1);
-    final endOfMonth = DateTime(now.year, now.month + 1, 0);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('attendance')
-            .where('childId', isEqualTo: childId)
-            .where('check_in_time',
-                isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
-            .where('check_in_time',
-                isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
-            .snapshots(),
+      child: StreamBuilder<List<QueryDocumentSnapshot>>(
+        stream: attendance_resolution.attendanceWatchChildDocs(childId),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
             return const Row(
@@ -708,17 +759,30 @@ class AttendancePage extends StatelessWidget {
             );
           }
 
-          final docs = snapshot.data!.docs;
-          final present =
-              docs.where((d) => (d.data() as Map)['isPresent'] == true).length;
-          final absent =
-              docs.where((d) => (d.data() as Map)['isPresent'] == false).length;
-          final late = docs.where((d) {
-            final ts = (d.data() as Map)['check_in_time'] as Timestamp?;
-            if (ts == null) return false;
-            final t = ts.toDate();
-            return t.hour > 8 || (t.hour == 8 && t.minute > 0);
-          }).length;
+          final docs = attendance_resolution.attendanceDocsForMonth(
+            snapshot.data!,
+            now,
+          );
+          var present = 0;
+          var absent = 0;
+          var late = 0;
+
+          for (final doc in docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final checkInTime = attendance_resolution.attendanceCheckInTime(data);
+            final checkOutTime = attendance_resolution.attendanceCheckOutTime(data);
+            if (checkInTime != null || checkOutTime != null) {
+              if (checkInTime != null &&
+                  (checkInTime.hour > 8 ||
+                      (checkInTime.hour == 8 && checkInTime.minute > 0))) {
+                late++;
+              } else {
+                present++;
+              }
+            } else {
+              absent++;
+            }
+          }
 
           return Row(
             children: [

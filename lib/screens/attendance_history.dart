@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
+import 'package:parent_app_taskazurah/screens/attendance_record_resolution.dart'
+  as attendance_resolution;
 
 class AttendanceHistoryPage extends StatefulWidget {
   final String childId;
@@ -378,7 +380,10 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
               return bTime.compareTo(aTime);
             });
 
-          if (normalizedDocs.isEmpty) {
+          final effectiveDocs =
+              attendance_resolution.collapseAttendanceDocsByDay(normalizedDocs);
+
+          if (effectiveDocs.isEmpty) {
             return const Center(child: Text("No attendance found for this child"));
           }
 
@@ -386,7 +391,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
           int present = 0, absent = 0, late = 0;
           List<DateTime> checkinTimes = [];
 
-          for (var doc in normalizedDocs) {
+          for (var doc in effectiveDocs) {
             final data = doc.data() as Map<String, dynamic>;
             final ts = _readTimestamp(
               data,
@@ -451,7 +456,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                 ),
               ),
               const SizedBox(height: 8),
-              for (var doc in _applyRecordFilter(normalizedDocs)) ...[
+              for (var doc in _applyRecordFilter(effectiveDocs)) ...[
                 _recordCardFromFirestore(context, doc),
                 const SizedBox(height: 10),
               ],

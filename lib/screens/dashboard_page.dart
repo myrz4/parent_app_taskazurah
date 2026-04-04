@@ -11,6 +11,8 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:parent_app_taskazurah/screens/attendance_record_resolution.dart'
+  as attendance_resolution;
 import 'package:parent_app_taskazurah/screens/attendance_dashboard.dart';
 import 'package:parent_app_taskazurah/screens/chat_list_page.dart';
 import 'package:parent_app_taskazurah/screens/parent_profile_page.dart';
@@ -420,6 +422,7 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
             final String childDocId = childSnapshot.data!.id;
             final String childName = (childData['name'] ?? selectedChild.childName).toString();
             final String childIdForAttendance = selectedChild.childId;
+            final String childRefPathForAttendance = selectedChild.childRef.path;
 
             String photoUrl = (childData['photoUrl'] ?? childData['imageUrl'] ?? '').toString().trim();
             if (photoUrl.isEmpty || !photoUrl.startsWith('http')) {
@@ -539,13 +542,12 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                   ],
                                 ),
                               ),
-                              child: StreamBuilder<QuerySnapshot>(
-                                stream: FirebaseFirestore.instance
-                                    .collection('attendance')
-                                  .where('childId', isEqualTo: childIdForAttendance)
-                                    .orderBy('check_in_time', descending: true)
-                                    .limit(1)
-                                    .snapshots(),
+                              child: StreamBuilder<attendance_resolution.ResolvedTodayAttendanceStatus>(
+                                stream: attendance_resolution.attendanceWatchResolvedTodayStatus(
+                                  parentId: parentId,
+                                  childId: childIdForAttendance,
+                                  childRefPath: childRefPathForAttendance,
+                                ),
                                 builder: (context, snapshot) {
                                   String statusText = 'Belum check-in';
                                   String subtitleText = 'Tiada rekod';
@@ -554,8 +556,8 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                   bool glow = false;
                                   bool isAdminCorrected = false;
 
-                                  if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-                                    final data = snapshot.data!.docs.first.data() as Map<String, dynamic>;
+                                  final data = snapshot.data?.attendance;
+                                  if (data != null && data.isNotEmpty) {
                                     final checkInTime = _readAttendanceTimestamp(
                                       data,
                                       const ['checkInAt', 'check_in_time', 'checkInTime', 'check_in'],
@@ -637,8 +639,12 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                           Navigator.push(
                                             context,
                                             MaterialPageRoute(
-                                              builder: (_) =>
-                                                  AttendancePage(childId: childIdForAttendance, childName: childName),
+                                              builder: (_) => AttendancePage(
+                                                childId: childIdForAttendance,
+                                                childName: childName,
+                                                parentId: parentId,
+                                                childRefPath: childRefPathForAttendance,
+                                              ),
                                             ),
                                           );
                                         },
@@ -673,7 +679,7 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                                 crossAxisAlignment: CrossAxisAlignment.start,
                                                 children: [
                                                   Text(statusText, style: _subtitle.copyWith(color: statusColor)),
-                                                  if (snapshot.hasData && snapshot.data!.docs.isNotEmpty && isAdminCorrected) ...[
+                                                  if (data != null && data.isNotEmpty && isAdminCorrected) ...[
                                                     SizedBox(height: _s[1]),
                                                     _adminCorrectedBadge(),
                                                   ],
@@ -728,8 +734,12 @@ class _TaskaZurahDashboardState extends State<TaskaZurahDashboard> {
                                         Navigator.push(
                                           context,
                                           MaterialPageRoute(
-                                            builder: (_) =>
-                                                AttendancePage(childId: childIdForAttendance, childName: childName),
+                                            builder: (_) => AttendancePage(
+                                              childId: childIdForAttendance,
+                                              childName: childName,
+                                              parentId: parentId,
+                                              childRefPath: childRefPathForAttendance,
+                                            ),
                                           ),
                                         );
                                       },
