@@ -1,0 +1,7 @@
+# Copy this file to android/key.properties and replace the placeholder values
+# with your actual Android release keystore settings.
+
+storeFile=../keystores/parent_app_release.jks
+storePassword=change-me
+keyAlias=parent-app-release
+keyPassword=change-me

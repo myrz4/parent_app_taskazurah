@@ -43,7 +43,7 @@ dependencies:
 
   # ───── App Lock (PIN / Biometrics) ─────
   local_auth: ^2.3.0
-  flutter_secure_storage: ^9.2.4
+  flutter_secure_storage: ^10.0.0
   crypto: ^3.0.6
 
 dev_dependencies:

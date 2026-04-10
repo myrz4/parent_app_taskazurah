@@ -84,8 +84,8 @@ class _TeacherContactPageState extends State<TeacherContactPage>
                       decoration: BoxDecoration(
                         color: backgroundLight,
                         borderRadius: BorderRadius.circular(16),
-                        border:
-                            Border.all(color: const Color(0xFFE0E0E0), width: 1),
+                        border: Border.all(
+                            color: const Color(0xFFE0E0E0), width: 1),
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(8.0),
@@ -122,7 +122,7 @@ class _TeacherContactPageState extends State<TeacherContactPage>
                           borderRadius: BorderRadius.circular(999),
                         ),
                         elevation: 8,
-                        shadowColor: primary.withOpacity(0.3),
+                        shadowColor: primary.withValues(alpha: 0.3),
                         textStyle: const TextStyle(
                             fontSize: 16, fontWeight: FontWeight.w700),
                       ),
@@ -150,7 +150,7 @@ class _TeacherContactPageState extends State<TeacherContactPage>
                         borderRadius: BorderRadius.circular(999),
                         boxShadow: [
                           BoxShadow(
-                            color: primary.withOpacity(0.28),
+                            color: primary.withValues(alpha: 0.28),
                             blurRadius: 12,
                             offset: const Offset(0, 6),
                           ),

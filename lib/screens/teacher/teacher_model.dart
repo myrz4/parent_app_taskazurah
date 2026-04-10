@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:parent_app_taskazurah/screens/chat_screen.dart';
 
 class Teacher {
@@ -40,7 +39,7 @@ class TeacherProfilePage extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? textDark : textLight;
     final textSecondary = isDark ? textSecondaryDark : textSecondaryLight;
-    final cardBg = isDark ? Colors.black.withOpacity(0.25) : Colors.white;
+    final cardBg = isDark ? Colors.black.withValues(alpha: 0.25) : Colors.white;
     final dividerColor = isDark ? Colors.grey.shade800 : Colors.grey.shade200;
 
     return Scaffold(
@@ -65,11 +64,11 @@ class TeacherProfilePage extends StatelessWidget {
                     height: 128,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: primary.withOpacity(0.12),
+                      color: primary.withValues(alpha: 0.12),
                     ),
                     child: teacher.imageUrl.trim().isEmpty
                         ? Icon(Icons.person,
-                            size: 64, color: primary.withOpacity(0.9))
+                            size: 64, color: primary.withValues(alpha: 0.9))
                         : ClipOval(
                             child: Image.network(
                               teacher.imageUrl,
@@ -77,7 +76,8 @@ class TeacherProfilePage extends StatelessWidget {
                               height: 128,
                               fit: BoxFit.cover,
                               errorBuilder: (_, __, ___) => Icon(Icons.person,
-                                  size: 64, color: primary.withOpacity(0.9)),
+                                  size: 64,
+                                  color: primary.withValues(alpha: 0.9)),
                             ),
                           ),
                   ),
@@ -225,7 +225,8 @@ class TeacherProfilePage extends StatelessWidget {
                       if (pid.isEmpty || pname.isEmpty) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('Please open chat from Dashboard so parent session is known.'),
+                            content: Text(
+                                'Please open chat from Dashboard so parent session is known.'),
                           ),
                         );
                         return;
@@ -333,7 +334,7 @@ class _Badge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = TeacherProfilePage.primary.withOpacity(0.18);
+    final bg = TeacherProfilePage.primary.withValues(alpha: 0.18);
     final fg = TeacherProfilePage.primary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

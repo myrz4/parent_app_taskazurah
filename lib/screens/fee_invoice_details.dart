@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'billing_invoice_presenter.dart';
+import 'billing_payment_status.dart';
 import 'billing_invoice_status_repair.dart';
 import 'demo_checkout.dart';
 
@@ -33,7 +34,6 @@ class InvoiceDetailsApp extends StatelessWidget {
         primaryColor: primary,
         brightness: Brightness.light,
         textTheme: const TextTheme(bodyMedium: TextStyle(color: textLight)),
-
         useMaterial3: true,
       ),
       darkTheme: ThemeData(
@@ -41,15 +41,12 @@ class InvoiceDetailsApp extends StatelessWidget {
         primaryColor: primary,
         brightness: Brightness.dark,
         textTheme: const TextTheme(bodyMedium: TextStyle(color: textDark)),
-
         useMaterial3: true,
       ),
       home: const InvoiceDetailsPage(),
     );
   }
 }
-
-
 
 class InvoiceDetailsPage extends StatelessWidget {
   const InvoiceDetailsPage({super.key});
@@ -62,7 +59,8 @@ class InvoiceDetailsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final args =
+        ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     final parentId = (args?['parentId'] ?? '').toString().trim();
     final parentNameArg = (args?['parentName'] ?? '').toString().trim();
     final invoiceId = (args?['invoiceId'] ?? '').toString().trim();
@@ -79,12 +77,10 @@ class InvoiceDetailsPage extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
 
     final cardBg = isDark ? Colors.grey[850] : Colors.white;
-    final muted = isDark
-        ? InvoiceDetailsApp.subtleDark
-        : InvoiceDetailsApp.subtleLight;
-    final textColor = isDark
-        ? InvoiceDetailsApp.textDark
-        : InvoiceDetailsApp.textLight;
+    final muted =
+        isDark ? InvoiceDetailsApp.subtleDark : InvoiceDetailsApp.subtleLight;
+    final textColor =
+        isDark ? InvoiceDetailsApp.textDark : InvoiceDetailsApp.textLight;
 
     final money = NumberFormat.currency(locale: 'ms_MY', symbol: 'RM');
     String fmtSen(Object? raw) {
@@ -132,7 +128,8 @@ class InvoiceDetailsPage extends StatelessWidget {
           builder: (context, snap) {
             if (snap.connectionState == ConnectionState.waiting) {
               return const Center(
-                child: CircularProgressIndicator(color: InvoiceDetailsApp.primary),
+                child:
+                    CircularProgressIndicator(color: InvoiceDetailsApp.primary),
               );
             }
             if (!snap.hasData || !snap.data!.exists) {
@@ -152,9 +149,12 @@ class InvoiceDetailsPage extends StatelessWidget {
             final displayName = invoicePresentation.displayName;
             final period = (inv['period'] ?? '').toString().trim();
             final status = (inv['status'] ?? 'unpaid').toString().toLowerCase();
-            final isPaid = status == 'paid';
-            final items = (inv['items'] is List) ? (inv['items'] as List) : const [];
+            final items =
+                (inv['items'] is List) ? (inv['items'] as List) : const [];
             final totalSen = inv['totalSen'] ?? 0;
+            final totalAmountSen = totalSen is int
+                ? totalSen
+                : (totalSen is num ? totalSen.toInt() : 0);
             final paidAt = tsToDate(inv['paidAt']);
             final paidMethod = (inv['paidMethod'] ?? '').toString();
             final paidBank = (inv['paidBank'] ?? '').toString();
@@ -163,14 +163,16 @@ class InvoiceDetailsPage extends StatelessWidget {
             final needsManagementReview = managementReviewRecommended(inv);
 
             Future<void> startPayFlow() async {
-              final create = FirebaseFunctions.instanceFor(region: 'asia-southeast1')
-                  .httpsCallable('billingCreateCheckoutSession');
+              final create =
+                  FirebaseFunctions.instanceFor(region: 'asia-southeast1')
+                      .httpsCallable('billingCreateCheckoutSession');
               final res = await create.call({
                 'parentId': parentId,
                 'invoiceId': invoiceId,
               });
 
-              final data = (res.data as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+              final data = (res.data as Map?)?.cast<String, dynamic>() ??
+                  const <String, dynamic>{};
               if (data['ok'] != true) {
                 throw Exception(data['reason'] ?? 'create-session-failed');
               }
@@ -180,13 +182,17 @@ class InvoiceDetailsPage extends StatelessWidget {
               final sessionId = (data['sessionId'] ?? '').toString();
               final amountSen = (data['amountSen'] is int)
                   ? data['amountSen'] as int
-                  : (data['amountSen'] is num ? (data['amountSen'] as num).toInt() : 0);
+                  : (data['amountSen'] is num
+                      ? (data['amountSen'] as num).toInt()
+                      : 0);
               final currency = (data['currency'] ?? 'MYR').toString();
               final mode = (data['mode'] ?? 'dummy').toString().toLowerCase();
-              final provider = (data['provider'] ?? 'dummy').toString().toLowerCase();
+              final provider =
+                  (data['provider'] ?? 'dummy').toString().toLowerCase();
 
               if (provider != 'dummy' || mode != 'dummy') {
-                throw Exception('This rollout only supports the dummy payment simulator.');
+                throw Exception(
+                    'This rollout only supports the dummy payment simulator.');
               }
 
               final ok = await Navigator.of(context).push<bool>(
@@ -203,361 +209,578 @@ class InvoiceDetailsPage extends StatelessWidget {
 
               if (ok == true && context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Demo payment completed successfully.')),
+                  const SnackBar(
+                      content: Text('Demo payment completed successfully.')),
                 );
               }
             }
 
-            return ListView(
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-              children: [
-                // Top app bar
-                Row(
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: billingLatestSessionStream(
+                  parentId: parentId, invoiceId: invoiceId),
+              builder: (context, sessionSnap) {
+                final latestSession =
+                    billingLatestSessionFromQuery(sessionSnap.data);
+                final paymentStatus = billingResolvePaymentStatus(
+                  invoice: inv,
+                  latestSession: latestSession,
+                );
+                final isPaid = status == 'paid' || paymentStatus.isSettled;
+                final statusColor = _paymentStatusColor(paymentStatus);
+
+                Future<void> resumeDemoPayment() async {
+                  if (latestSession == null ||
+                      !latestSession.supportsInAppDummyFlow) {
+                    await startPayFlow();
+                    return;
+                  }
+
+                  final ok = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(
+                      builder: (_) => DemoCheckoutPage(
+                        parentId: parentId,
+                        invoiceId: invoiceId,
+                        sessionId: latestSession.sessionId,
+                        amountSen: latestSession.amountSen > 0
+                            ? latestSession.amountSen
+                            : totalAmountSen,
+                        currency: latestSession.currency,
+                      ),
+                    ),
+                  );
+
+                  if (ok == true && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content:
+                              Text('Demo payment completed successfully.')),
+                    );
+                  }
+                }
+
+                Future<void> syncLatestSession() async {
+                  if (latestSession == null) {
+                    return;
+                  }
+
+                  final sync =
+                      FirebaseFunctions.instanceFor(region: 'asia-southeast1')
+                          .httpsCallable('billingSyncCheckoutSession');
+                  final res = await sync.call({
+                    'parentId': parentId,
+                    'invoiceId': invoiceId,
+                    'sessionId': latestSession.sessionId,
+                  });
+                  final data = (res.data as Map?)?.cast<String, dynamic>() ??
+                      const <String, dynamic>{};
+                  final syncedStatus =
+                      (data['status'] ?? '').toString().toLowerCase();
+
+                  if (!context.mounted) {
+                    return;
+                  }
+
+                  if (data['paid'] == true || syncedStatus == 'succeeded') {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content:
+                              Text('Demo payment confirmed successfully.')),
+                    );
+                    return;
+                  }
+
+                  if (syncedStatus == 'processing') {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text(
+                              'Demo payment is still processing. Please check again shortly.')),
+                    );
+                    return;
+                  }
+
+                  if (syncedStatus == 'expired') {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text(
+                              'The last demo payment session expired. Start a new one.')),
+                    );
+                    return;
+                  }
+
+                  if (syncedStatus == 'pending') {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                          content: Text(
+                              'This demo payment session is still awaiting authorization.')),
+                    );
+                    return;
+                  }
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text(
+                            'Unable to confirm the latest payment session yet.')),
+                  );
+                }
+
+                Future<void> handlePrimaryPaymentAction() async {
+                  switch (paymentStatus.action) {
+                    case BillingPaymentAction.none:
+                      return;
+                    case BillingPaymentAction.start:
+                      await startPayFlow();
+                      return;
+                    case BillingPaymentAction.resume:
+                      await resumeDemoPayment();
+                      return;
+                    case BillingPaymentAction.sync:
+                      await syncLatestSession();
+                      return;
+                  }
+                }
+
+                return ListView(
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
                   children: [
-                    IconButton(
-                      onPressed: () => Navigator.maybePop(context),
-                      icon: Icon(Icons.arrow_back, color: textColor),
-                    ),
-                    const Expanded(
-                      child: Center(
-                        child: Text(
-                          'Billing Details',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    Row(
+                      children: [
+                        IconButton(
+                          onPressed: () => Navigator.maybePop(context),
+                          icon: Icon(Icons.arrow_back, color: textColor),
                         ),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 40,
-                      height: 40,
-                      child: ClipOval(
-                        child: Image.network(
-                          avatarUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Container(color: Colors.grey),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 12),
-
-                // Header block
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: cardBg,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color.fromRGBO(0, 0, 0, 0.06),
-                        blurRadius: 8,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        displayName,
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: textColor),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        invoicePresentation.supportingLabel,
-                        style: TextStyle(color: muted, fontSize: 13),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Invoice ID: $invoiceId${period.isEmpty ? '' : '  •  $period'}',
-                        style: TextStyle(color: muted, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                const Text('Invoice Breakdown', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: cardBg,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color.fromRGBO(0, 0, 0, 0.06),
-                        blurRadius: 8,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      if (items.isEmpty) ...[
-                        _lineItem(label: 'No charges recorded', value: '—', valueColor: textColor),
-                      ] else ...[
-                        for (final it in items) ...[
-                          _lineItem(
-                            label: (it is Map ? (it['description'] ?? it['code'] ?? 'Item') : 'Item').toString(),
-                            value: fmtSen(it is Map ? it['amountSen'] : 0),
-                            valueColor: textColor,
+                        const Expanded(
+                          child: Center(
+                            child: Text(
+                              'Billing Details',
+                              style: TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.w700),
+                            ),
                           ),
-                          const SizedBox(height: 8),
-                        ]
+                        ),
+                        SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: ClipOval(
+                            child: Image.network(
+                              avatarUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) =>
+                                  Container(color: Colors.grey),
+                            ),
+                          ),
+                        ),
                       ],
-                      const SizedBox(height: 4),
-                      Divider(color: isDark ? Colors.grey[700] : Colors.grey[200]),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Total Amount',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: InvoiceDetailsApp.primary),
-                          ),
-                          Text(
-                            fmtSen(totalSen),
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: InvoiceDetailsApp.primary),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: cardBg,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color.fromRGBO(0, 0, 0, 0.06),
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                if (needsManagementReview) ...[
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.orange.withValues(alpha: 0.28)),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.warning_amber_rounded, color: Colors.orange),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Late-night overtime exceeded the policy threshold. This invoice should be reviewed by management.',
-                            style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            displayName,
+                            style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: textColor),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 8),
+                          Text(
+                            invoicePresentation.supportingLabel,
+                            style: TextStyle(color: muted, fontSize: 13),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Invoice ID: $invoiceId${period.isEmpty ? '' : '  •  $period'}',
+                            style: TextStyle(color: muted, fontSize: 13),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-
-                if (policyNotes.isNotEmpty) ...[
-                  const Text('Policy Notes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: cardBg,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color.fromRGBO(0, 0, 0, 0.06),
-                          blurRadius: 8,
-                          offset: Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (final note in policyNotes) ...[
+                    const SizedBox(height: 16),
+                    const Text('Invoice Breakdown',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: cardBg,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color.fromRGBO(0, 0, 0, 0.06),
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          if (items.isEmpty) ...[
+                            _lineItem(
+                                label: 'No charges recorded',
+                                value: '—',
+                                valueColor: textColor),
+                          ] else ...[
+                            for (final it in items) ...[
+                              _lineItem(
+                                label: (it is Map
+                                        ? (it['description'] ??
+                                            it['code'] ??
+                                            'Item')
+                                        : 'Item')
+                                    .toString(),
+                                value: fmtSen(it is Map ? it['amountSen'] : 0),
+                                valueColor: textColor,
+                              ),
+                              const SizedBox(height: 8),
+                            ]
+                          ],
+                          const SizedBox(height: 4),
+                          Divider(
+                              color:
+                                  isDark ? Colors.grey[700] : Colors.grey[200]),
+                          const SizedBox(height: 12),
                           Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text('• ', style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
-                              Expanded(
+                              Text(
+                                'Total Amount',
+                                style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: InvoiceDetailsApp.primary),
+                              ),
+                              Text(
+                                fmtSen(totalAmountSen),
+                                style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: InvoiceDetailsApp.primary),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (needsManagementReview) ...[
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color: Colors.orange.withValues(alpha: 0.28)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.warning_amber_rounded,
+                                color: Colors.orange),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Late-night overtime exceeded the policy threshold. This invoice should be reviewed by management.',
+                                style: TextStyle(
+                                    color: textColor,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    if (policyNotes.isNotEmpty) ...[
+                      const Text('Policy Notes',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: cardBg,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color.fromRGBO(0, 0, 0, 0.06),
+                              blurRadius: 8,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            for (final note in policyNotes) ...[
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('• ',
+                                      style: TextStyle(
+                                          color: textColor,
+                                          fontWeight: FontWeight.w700)),
+                                  Expanded(
+                                    child: Text(
+                                      note,
+                                      style: TextStyle(
+                                          color: textColor, height: 1.35),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    const Text('Payment Information',
+                        style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: cardBg,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color.fromRGBO(0, 0, 0, 0.06),
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          if (!isPaid) ...[
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: InvoiceDetailsApp.primary
+                                    .withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                'Current rollout uses a realistic dummy payment simulator. No real bank or payment gateway will be charged.',
+                                style: TextStyle(
+                                    color: textColor,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+                          _lineItem(
+                            label: 'Payment Method',
+                            value: isPaid
+                                ? (paidMethod.isEmpty
+                                    ? 'Demo Online Banking Simulator'
+                                    : '$paidMethod (simulated)')
+                                : (latestSession?.method.isNotEmpty == true
+                                    ? '${latestSession!.method} (simulated)'
+                                    : '—'),
+                            valueColor: textColor,
+                          ),
+                          const SizedBox(height: 8),
+                          _lineItem(
+                            label: 'Simulated Bank',
+                            value: isPaid
+                                ? (paidBank.isEmpty
+                                    ? 'Demo Bank Selection'
+                                    : paidBank)
+                                : (latestSession?.bank.isNotEmpty == true
+                                    ? latestSession!.bank
+                                    : '—'),
+                            valueColor: textColor,
+                          ),
+                          const SizedBox(height: 8),
+                          _lineItem(
+                            label: 'Payment Date',
+                            value: isPaid && paidAt != null
+                                ? DateFormat('d MMM yyyy').format(paidAt)
+                                : '—',
+                            valueColor: textColor,
+                          ),
+                          const SizedBox(height: 8),
+                          _lineItem(
+                            label: 'Receipt No',
+                            value: isPaid
+                                ? (receiptNo.isEmpty ? '—' : receiptNo)
+                                : (latestSession?.receiptNo.isNotEmpty == true
+                                    ? latestSession!.receiptNo
+                                    : '—'),
+                            valueColor: textColor,
+                          ),
+                          if (latestSession != null) ...[
+                            const SizedBox(height: 8),
+                            _lineItem(
+                              label: 'Checkout Session',
+                              value: latestSession.sessionId,
+                              valueColor: textColor,
+                            ),
+                          ],
+                          if (!isPaid && latestSession?.expiresAt != null) ...[
+                            const SizedBox(height: 8),
+                            _lineItem(
+                              label: 'Session Expires',
+                              value: DateFormat('d MMM yyyy, h:mm a')
+                                  .format(latestSession!.expiresAt!),
+                              valueColor: textColor,
+                            ),
+                          ],
+                          const SizedBox(height: 8),
+                          _lineItem(
+                            label: 'Invoice Scope',
+                            value: invoicePresentation.scopeLabel,
+                            valueColor: textColor,
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Status', style: TextStyle(color: muted)),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: statusColor.withValues(alpha: 0.18),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
                                 child: Text(
-                                  note,
-                                  style: TextStyle(color: textColor, height: 1.35),
+                                  paymentStatus.label,
+                                  style: TextStyle(
+                                    color: statusColor,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-
-                const Text('Payment Information', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: cardBg,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color.fromRGBO(0, 0, 0, 0.06),
-                        blurRadius: 8,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      if (!isPaid) ...[
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: InvoiceDetailsApp.primary.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            'Current rollout uses a realistic dummy payment simulator. No real bank or payment gateway will be charged.',
-                            style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      _lineItem(
-                        label: 'Payment Method',
-                        value: isPaid ? (paidMethod.isEmpty ? 'Demo Online Banking Simulator' : '$paidMethod (simulated)') : '—',
-                        valueColor: textColor,
-                      ),
-                      const SizedBox(height: 8),
-                      _lineItem(
-                        label: 'Simulated Bank',
-                        value: isPaid ? (paidBank.isEmpty ? 'Demo Bank Selection' : paidBank) : '—',
-                        valueColor: textColor,
-                      ),
-                      const SizedBox(height: 8),
-                      _lineItem(
-                        label: 'Payment Date',
-                        value: isPaid && paidAt != null ? DateFormat('d MMM yyyy').format(paidAt) : '—',
-                        valueColor: textColor,
-                      ),
-                      const SizedBox(height: 8),
-                      _lineItem(
-                        label: 'Receipt No',
-                        value: isPaid ? (receiptNo.isEmpty ? '—' : receiptNo) : '—',
-                        valueColor: textColor,
-                      ),
-                      const SizedBox(height: 8),
-                      _lineItem(
-                        label: 'Invoice Scope',
-                        value: invoicePresentation.scopeLabel,
-                        valueColor: textColor,
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Status', style: TextStyle(color: muted)),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: (isPaid ? InvoiceDetailsApp.statusPaid : Colors.orange).withValues(alpha: 0.18),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.centerLeft,
                             child: Text(
-                              isPaid ? 'Paid' : 'Unpaid',
+                              paymentStatus.detail,
                               style: TextStyle(
-                                color: isPaid ? InvoiceDetailsApp.statusPaid : Colors.orange,
-                                fontWeight: FontWeight.w700,
+                                color: muted,
+                                fontSize: 13,
+                                height: 1.35,
                               ),
                             ),
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                if (!isPaid)
-                  ElevatedButton(
-                    onPressed: () async {
-                      try {
-                        await startPayFlow();
-                      } catch (error) {
-                        if (!context.mounted) return;
-                        final message = error.toString();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              message.contains('dummy payment simulator')
-                                  ? 'This rollout only supports the dummy payment simulator.'
-                                  : 'Unable to start the demo payment flow.',
-                            ),
-                          ),
-                        );
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: InvoiceDetailsApp.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      elevation: 4,
-                      shadowColor: InvoiceDetailsApp.primary.withValues(alpha: 0.25),
                     ),
-                    child: const Text('Run Demo Payment', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white)),
-                  )
-                else
-                  ElevatedButton(
-                    onPressed: null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: InvoiceDetailsApp.primary.withValues(alpha: 0.5),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      elevation: 0,
-                    ),
-                    child: const Text('Payment Completed', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white)),
-                  ),
-
-                const SizedBox(height: 10),
-                OutlinedButton(
-                  onPressed: () => Navigator.maybePop(context),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: InvoiceDetailsApp.primary),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: const Text('Back to Ledger', style: TextStyle(fontWeight: FontWeight.w700)),
-                ),
-
-                const SizedBox(height: 18),
-
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: InvoiceDetailsApp.primary.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.eco, color: InvoiceDetailsApp.primary),
-                      const SizedBox(width: 10),
-                      Expanded(
+                    const SizedBox(height: 20),
+                    if (!isPaid &&
+                        paymentStatus.action != BillingPaymentAction.none)
+                      ElevatedButton(
+                        onPressed: () async {
+                          try {
+                            await handlePrimaryPaymentAction();
+                          } catch (error) {
+                            if (!context.mounted) return;
+                            final message = error.toString();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  message.contains('dummy payment simulator')
+                                      ? 'This rollout only supports the dummy payment simulator.'
+                                      : 'Unable to continue the demo payment flow.',
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: InvoiceDetailsApp.primary,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          elevation: 4,
+                          shadowColor:
+                              InvoiceDetailsApp.primary.withValues(alpha: 0.25),
+                        ),
                         child: Text(
-                          'Go Green! Help us save the environment by using digital receipts.',
-                          style: TextStyle(color: InvoiceDetailsApp.primary, fontWeight: FontWeight.w600),
+                          paymentStatus.primaryActionLabel,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, color: Colors.white),
+                        ),
+                      )
+                    else
+                      ElevatedButton(
+                        onPressed: null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor:
+                              InvoiceDetailsApp.primary.withValues(alpha: 0.5),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          elevation: 0,
+                        ),
+                        child: Text(
+                          isPaid ? 'Payment Completed' : paymentStatus.label,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, color: Colors.white),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 40),
-              ],
+                    const SizedBox(height: 10),
+                    OutlinedButton(
+                      onPressed: () => Navigator.maybePop(context),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: InvoiceDetailsApp.primary),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Back to Ledger',
+                          style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                    const SizedBox(height: 18),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color:
+                            InvoiceDetailsApp.primary.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.eco,
+                              color: InvoiceDetailsApp.primary),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Go Green! Help us save the environment by using digital receipts.',
+                              style: TextStyle(
+                                  color: InvoiceDetailsApp.primary,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 40),
+                  ],
+                );
+              },
             );
           },
         ),
@@ -580,5 +803,20 @@ class InvoiceDetailsPage extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  Color _paymentStatusColor(BillingPaymentStatus status) {
+    switch (status.tone) {
+      case BillingPaymentStatusTone.success:
+        return InvoiceDetailsApp.statusPaid;
+      case BillingPaymentStatusTone.info:
+        return Colors.blue;
+      case BillingPaymentStatusTone.warning:
+        return Colors.orange;
+      case BillingPaymentStatusTone.danger:
+        return Colors.redAccent;
+      case BillingPaymentStatusTone.neutral:
+        return const Color(0xFF6B7280);
+    }
   }
 }

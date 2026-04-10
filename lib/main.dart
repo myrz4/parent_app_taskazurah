@@ -34,21 +34,23 @@ final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 // Handle background messages (app closed / minimized)
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  print('📩 Background Message: ${message.notification?.title}');
+  debugPrint('📩 Background Message: ${message.notification?.title}');
 }
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    print('🚀 Initializing Firebase...');
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-    print('✅ Firebase initialized successfully');
+    debugPrint('🚀 Initializing Firebase...');
+    await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform);
+    debugPrint('✅ Firebase initialized successfully');
 
     // ✅ Dev-only: keep emulator / debug builds reliable.
     // This DOES NOT affect release builds.
     if (kDebugMode) {
-      await FirebaseAuth.instance.setSettings(appVerificationDisabledForTesting: true);
+      await FirebaseAuth.instance
+          .setSettings(appVerificationDisabledForTesting: true);
     }
 
     // 🔔 FCM background handler
@@ -75,20 +77,19 @@ Future<void> main() async {
       badge: true,
       sound: true,
     );
-    print('🔔 Permission status: ${settings.authorizationStatus}');
+    debugPrint('🔔 Permission status: ${settings.authorizationStatus}');
 
     // 🔔 Dapatkan dan print FCM token
     String? token = await fcm.getToken();
-    print('📱 Parent FCM Token: $token');
+    debugPrint('📱 Parent FCM Token: $token');
 
     // 🔔 Listen to foreground messages (masa app tengah buka)
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      print('📨 Foreground message: ${message.notification?.title}');
+      debugPrint('📨 Foreground message: ${message.notification?.title}');
       await _showLocalNotification(message);
     });
-
   } catch (e) {
-    print('🔥 Error initializing Firebase: $e');
+    debugPrint('🔥 Error initializing Firebase: $e');
   }
 
   runApp(const MyApp());

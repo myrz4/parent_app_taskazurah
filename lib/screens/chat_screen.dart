@@ -29,18 +29,21 @@ class _ChatScreenState extends State<ChatScreen> {
 
   static String _norm(String s) => s.trim().toLowerCase();
 
-  static String _chatIdFor({required String teacherId, required String parentId}) {
+  static String _chatIdFor(
+      {required String teacherId, required String parentId}) {
     return 'teacher_${_norm(teacherId)}_parent_${_norm(parentId)}';
   }
 
   @override
   void initState() {
     super.initState();
-    final chatId = _chatIdFor(teacherId: widget.teacherId, parentId: widget.parentId);
+    final chatId =
+        _chatIdFor(teacherId: widget.teacherId, parentId: widget.parentId);
     _chatRef = _db.collection('chats').doc(chatId);
 
     // Mark as read for this side (best-effort).
-    _chatRef.set({'unreadCountParent': 0}, SetOptions(merge: true)).catchError((_) {});
+    _chatRef.set(
+        {'unreadCountParent': 0}, SetOptions(merge: true)).catchError((_) {});
   }
 
   Future<void> _send() async {
@@ -97,7 +100,7 @@ class _ChatScreenState extends State<ChatScreen> {
         curve: Curves.easeInOut,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFF7ACB9E).withOpacity(0.15),
+          color: const Color(0xFF7ACB9E).withValues(alpha: 0.15),
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: const Color(0xFF7ACB9E)),
         ),
@@ -183,8 +186,12 @@ class _ChatScreenState extends State<ChatScreen> {
                     final text = (m['text'] ?? '').toString();
                     final ts = m['timestamp'] as Timestamp?;
 
-                    final isMe = (senderRole == 'parent' && senderId == widget.parentId) ||
-                        (senderRole.isEmpty && (legacySender == widget.parentId || _norm(legacySender) == _norm(widget.parentName)));
+                    final isMe = (senderRole == 'parent' &&
+                            senderId == widget.parentId) ||
+                        (senderRole.isEmpty &&
+                            (legacySender == widget.parentId ||
+                                _norm(legacySender) ==
+                                    _norm(widget.parentName)));
 
                     final time = _formatLocalTime(ts);
 
@@ -206,7 +213,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.05),
+                              color: Colors.black.withValues(alpha: 0.05),
                               blurRadius: 6,
                               offset: const Offset(0, 3),
                             ),

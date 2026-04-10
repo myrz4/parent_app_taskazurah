@@ -55,19 +55,23 @@ class _LoginPageState extends State<LoginPage> {
     _showSnackBar("Signing in...", duration: 1);
 
     try {
-      final emails = _candidateDerivedEmails(rawPhone: rawPhone, phoneE164: phoneE164);
+      final emails =
+          _candidateDerivedEmails(rawPhone: rawPhone, phoneE164: phoneE164);
       FirebaseAuthException? lastAuthError;
 
       var signedIn = false;
       for (final email in emails) {
         try {
-          await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: pin);
+          await FirebaseAuth.instance
+              .signInWithEmailAndPassword(email: email, password: pin);
           signedIn = true;
           break;
         } on FirebaseAuthException catch (e) {
           lastAuthError = e;
           // Try next candidate for common auth failures.
-          if (e.code == 'user-not-found' || e.code == 'wrong-password' || e.code == 'invalid-credential') {
+          if (e.code == 'user-not-found' ||
+              e.code == 'wrong-password' ||
+              e.code == 'invalid-credential') {
             continue;
           }
           rethrow;
@@ -75,7 +79,8 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       if (!signedIn) {
-        throw lastAuthError ?? FirebaseAuthException(code: 'invalid-credential');
+        throw lastAuthError ??
+            FirebaseAuthException(code: 'invalid-credential');
       }
 
       // Keep local app-lock PIN in sync on this device.
@@ -83,7 +88,9 @@ class _LoginPageState extends State<LoginPage> {
       await _appLock.enableWithPin(pin: pin, enableBiometrics: useBio);
       _showSnackBar('Signed in.', color: Colors.green);
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'user-not-found' || e.code == 'wrong-password' || e.code == 'invalid-credential') {
+      if (e.code == 'user-not-found' ||
+          e.code == 'wrong-password' ||
+          e.code == 'invalid-credential') {
         _showSnackBar("PIN not set or incorrect. Use OTP login.");
         setState(() {
           _otpMode = true;
@@ -167,7 +174,8 @@ class _LoginPageState extends State<LoginPage> {
       final elapsed = now.difference(last);
       if (elapsed < _otpCooldown) {
         final remaining = (_otpCooldown - elapsed).inSeconds;
-        _showSnackBar("Please wait $remaining seconds before requesting OTP again.");
+        _showSnackBar(
+            "Please wait $remaining seconds before requesting OTP again.");
         return;
       }
     }
@@ -177,7 +185,8 @@ class _LoginPageState extends State<LoginPage> {
 
     // Gate SMS cost: only send OTP if this phone is registered as a parent.
     try {
-      final callable = FirebaseFunctions.instanceFor(region: 'asia-southeast1').httpsCallable('canRequestOtp');
+      final callable = FirebaseFunctions.instanceFor(region: 'asia-southeast1')
+          .httpsCallable('canRequestOtp');
       final res = await callable.call({
         'phone': phoneE164,
         'kind': 'parent',
@@ -189,7 +198,8 @@ class _LoginPageState extends State<LoginPage> {
         if (reason == 'not-registered') {
           _showSnackBar('Number not registered. Contact admin.');
         } else {
-          _showSnackBar('Unable to verify registration ($reason). Try again later.');
+          _showSnackBar(
+              'Unable to verify registration ($reason). Try again later.');
         }
         if (mounted) setState(() => isLoading = false);
         return;
@@ -260,120 +270,6 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  Future<bool> _ensurePinIsSetAfterOtp({required String phoneE164}) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return false;
-
-    var pinSaved = false;
-    var pinAlreadyExists = false;
-
-    final hasPasswordProvider = user.providerData.any((p) => p.providerId == 'password');
-    final title = hasPasswordProvider ? 'Reset PIN' : 'Create PIN';
-    final subtitle = hasPasswordProvider
-        ? 'You logged in using OTP. Set a new PIN to login next time.'
-        : 'PIN is mandatory. Create a PIN to login next time.';
-
-    final pin1 = TextEditingController();
-    final pin2 = TextEditingController();
-
-    final result = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(title),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(subtitle),
-              const SizedBox(height: 12),
-              TextField(
-                controller: pin1,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                obscureText: true,
-                decoration: const InputDecoration(counterText: '', labelText: 'PIN (6 digits)'),
-              ),
-              TextField(
-                controller: pin2,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                obscureText: true,
-                decoration: const InputDecoration(counterText: '', labelText: 'Confirm PIN'),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Logout'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final a = pin1.text.trim();
-                final b = pin2.text.trim();
-                if (a.length != 6 || !RegExp(r'^[0-9]{6}$').hasMatch(a)) {
-                  _showSnackBar('PIN must be exactly 6 digits');
-                  return;
-                }
-                if (a != b) {
-                  _showSnackBar('PIN does not match');
-                  return;
-                }
-
-                final email = _emailFromPhone(phoneE164);
-
-                try {
-                  if (!hasPasswordProvider) {
-                    await user.linkWithCredential(EmailAuthProvider.credential(email: email, password: a));
-                  } else {
-                    await user.updatePassword(a);
-                  }
-                  pinSaved = true;
-                  await _appLock.enableWithPin(pin: a, enableBiometrics: false);
-                  if (!context.mounted) return;
-                  Navigator.of(context).pop(true);
-                } on FirebaseAuthException catch (e) {
-                  if (!context.mounted) return;
-                  if (e.code == 'email-already-in-use' || e.code == 'credential-already-in-use') {
-                    // This usually means a derived-email account already exists for this phone.
-                    // OTP login can continue, but we can't reset that password without knowing it.
-                    pinAlreadyExists = true;
-                    _showSnackBar('PIN already exists for this number. Continue with OTP, or use PIN login next time.');
-                    Navigator.of(context).pop(true);
-                    return;
-                  }
-                  _showSnackBar(e.message ?? 'Failed to create PIN');
-                } catch (_) {
-                  if (!context.mounted) return;
-                  _showSnackBar('Failed to create PIN');
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF4CAF50),
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Save PIN'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (result == true) {
-      if (pinSaved) {
-        _showSnackBar(hasPasswordProvider ? 'PIN updated' : 'PIN created', color: Colors.green);
-      } else if (pinAlreadyExists) {
-        _showSnackBar('PIN already exists (not changed).', color: Colors.green);
-      }
-      return true;
-    }
-
-    await FirebaseAuth.instance.signOut();
-    _showSnackBar('PIN is required to continue');
-    return false;
-  }
-
   String _digitsOnly(String input) => input.replaceAll(RegExp(r'[^0-9]'), '');
 
   // Firestore stores phones like 011..., not +60....
@@ -381,17 +277,21 @@ class _LoginPageState extends State<LoginPage> {
   String _phoneLocalDigitsFromAny(String phone) {
     final digits = _digitsOnly(phone);
     if (digits.isEmpty) return '';
-    if (digits.startsWith('60') && digits.length > 2) return '0${digits.substring(2)}';
+    if (digits.startsWith('60') && digits.length > 2) {
+      return '0${digits.substring(2)}';
+    }
     if (digits.startsWith('0')) return digits;
     // If user typed 11... without leading 0, assume Malaysia mobile and prefix 0.
     if (digits.startsWith('1')) return '0$digits';
     return digits;
   }
 
-  List<String> _candidateDerivedEmails({required String rawPhone, required String phoneE164}) {
+  List<String> _candidateDerivedEmails(
+      {required String rawPhone, required String phoneE164}) {
     final emails = <String>{};
 
-    final local = _phoneLocalDigitsFromAny(rawPhone.isNotEmpty ? rawPhone : phoneE164);
+    final local =
+        _phoneLocalDigitsFromAny(rawPhone.isNotEmpty ? rawPhone : phoneE164);
     if (local.isNotEmpty) emails.add('p_$local@taskazurah.local');
 
     // Legacy variants (older builds may have used +60 digits).
@@ -401,23 +301,6 @@ class _LoginPageState extends State<LoginPage> {
     if (rawDigits.isNotEmpty) emails.add('p_$rawDigits@taskazurah.local');
 
     return emails.toList();
-  }
-
-  String _emailFromPhone(String phoneE164) {
-    final local = _phoneLocalDigitsFromAny(phoneE164);
-    return 'p_$local@taskazurah.local';
-  }
-
-  String? _phoneFromEmail(String? email) {
-    if (email == null) return null;
-    final e = email.trim().toLowerCase();
-    if (!e.startsWith('p_') || !e.endsWith('@taskazurah.local')) return null;
-    final at = e.indexOf('@');
-    if (at <= 2) return null;
-    final digits = e.substring(2, at);
-    if (digits.isEmpty) return null;
-    if (digits.startsWith('60') && digits.length > 2) return '0${digits.substring(2)}';
-    return digits;
   }
 
   String? _normalizePhoneToE164(String input) {
@@ -506,7 +389,7 @@ class _LoginPageState extends State<LoginPage> {
                         "Parenting is not about perfection, it’s about connection.",
                         style: TextStyle(
                           fontSize: 16,
-                          color: Colors.white.withOpacity(0.9),
+                          color: Colors.white.withValues(alpha: 0.9),
                           fontStyle: FontStyle.italic,
                         ),
                       ),
@@ -530,7 +413,7 @@ class _LoginPageState extends State<LoginPage> {
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.green.withOpacity(0.15),
+                        color: Colors.green.withValues(alpha: 0.15),
                         blurRadius: 20,
                         offset: const Offset(0, 10),
                       ),
@@ -570,7 +453,9 @@ class _LoginPageState extends State<LoginPage> {
                         onTap: isLoading
                             ? null
                             : (_otpMode
-                                ? (_codeSent ? _verifyOtpAndLogin : _sendOtpForOtpLogin)
+                                ? (_codeSent
+                                    ? _verifyOtpAndLogin
+                                    : _sendOtpForOtpLogin)
                                 : _loginWithPin),
                         child: Container(
                           height: 55,
@@ -581,7 +466,7 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.green.withOpacity(0.4),
+                                color: Colors.green.withValues(alpha: 0.4),
                                 blurRadius: 10,
                                 offset: const Offset(0, 5),
                               ),
@@ -599,7 +484,9 @@ class _LoginPageState extends State<LoginPage> {
                                   )
                                 : Text(
                                     _otpMode
-                                    ? (_codeSent ? "Verify OTP & Login" : "Send OTP")
+                                        ? (_codeSent
+                                            ? "Verify OTP & Login"
+                                            : "Send OTP")
                                         : "Login",
                                     style: const TextStyle(
                                       color: Colors.white,

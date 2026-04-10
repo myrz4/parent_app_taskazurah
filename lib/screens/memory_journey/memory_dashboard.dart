@@ -220,7 +220,7 @@ class _MemoryJourneyPageState extends State<MemoryJourneyPage> {
                         child: ElevatedButton(
                           onPressed: () {},
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: primary.withOpacity(0.2),
+                            backgroundColor: primary.withValues(alpha: 0.2),
                             foregroundColor: primary,
                             elevation: 0,
                             padding: const EdgeInsets.symmetric(vertical: 12),
@@ -242,7 +242,7 @@ class _MemoryJourneyPageState extends State<MemoryJourneyPage> {
                             );
                           },
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: primary.withOpacity(0.2),
+                            backgroundColor: primary.withValues(alpha: 0.2),
                             foregroundColor: primary,
                             elevation: 0,
                             padding: const EdgeInsets.symmetric(vertical: 12),
@@ -267,7 +267,6 @@ class _MemoryJourneyPageState extends State<MemoryJourneyPage> {
 
 class _MemoryCard extends StatelessWidget {
   const _MemoryCard({
-    super.key,
     required this.imageUrl,
     required this.description,
     required this.teacher,
@@ -289,7 +288,7 @@ class _MemoryCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 8,
               offset: const Offset(0, 3)),
         ],

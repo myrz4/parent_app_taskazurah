@@ -134,8 +134,8 @@ class MonthlyStoryPage extends StatelessWidget {
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
-                                  color: Colors.black.withOpacity(
-                                    isDark ? 0.25 : 0.05,
+                                  color: Colors.black.withValues(
+                                    alpha: isDark ? 0.25 : 0.05,
                                   ),
                                   blurRadius: 6,
                                   offset: const Offset(0, 4),
@@ -173,11 +173,11 @@ class MonthlyStoryPage extends StatelessWidget {
                             physics: const NeverScrollableScrollPhysics(),
                             gridDelegate:
                                 const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  mainAxisSpacing: 12,
-                                  crossAxisSpacing: 12,
-                                  childAspectRatio: 1,
-                                ),
+                              crossAxisCount: 2,
+                              mainAxisSpacing: 12,
+                              crossAxisSpacing: 12,
+                              childAspectRatio: 1,
+                            ),
                             itemCount: 6,
                             itemBuilder: (context, index) {
                               final imageUrl = images[index % images.length];
@@ -210,8 +210,8 @@ class MonthlyStoryPage extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: MonthlyStoryApp.primaryColor.withOpacity(
-                                0.1,
+                              color: MonthlyStoryApp.primaryColor.withValues(
+                                alpha: 0.1,
                               ),
                               borderRadius: BorderRadius.circular(12),
                             ),
@@ -254,7 +254,6 @@ class MonthlyStoryPage extends StatelessWidget {
                                       ),
                                     );
                                   },
-
                                   icon: const Icon(
                                     Icons.download,
                                     color: MonthlyStoryApp.pastelButtonText,
@@ -265,7 +264,6 @@ class MonthlyStoryPage extends StatelessWidget {
                                       color: MonthlyStoryApp.pastelButtonText,
                                     ),
                                   ),
-
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor:
                                         MonthlyStoryApp.pastelButtonBg,
@@ -293,7 +291,6 @@ class MonthlyStoryPage extends StatelessWidget {
                                       color: MonthlyStoryApp.pastelButtonText,
                                     ),
                                   ),
-
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor:
                                         MonthlyStoryApp.pastelButtonBg,

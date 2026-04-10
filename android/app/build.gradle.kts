@@ -1,19 +1,55 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin") // must come last
 }
 
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+val hasReleaseKeystore = keystorePropertiesFile.exists()
+val isBundleBuild = gradle.startParameter.taskNames.any {
+    it.contains("bundle", ignoreCase = true)
+}
+val isReleaseBuild = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true)
+}
+
+if (hasReleaseKeystore) {
+    keystorePropertiesFile.inputStream().use { stream ->
+        keystoreProperties.load(stream)
+    }
+} else if (isReleaseBuild) {
+    logger.warn(
+        "Android release build is using debug signing because android/key.properties is missing. " +
+            "Add android/key.properties before publishing to Play Store or distributing a production Android release.",
+    )
+}
+
 android {
     namespace = "com.example.parent_app"
     compileSdk = 36 // ✅ updated for new plugins
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+            }
+        }
+    }
+
     packaging {
         jniLibs {
-            // Prevent build failures on Windows where stripDebugSymbols can
-            // intermittently fail with "No such file or directory" for merged
-            // native libraries.
-            keepDebugSymbols += setOf("**/*.so")
+            // Prevent APK build failures on Windows where stripDebugSymbols can
+            // intermittently fail for merged native libraries. For app bundles,
+            // allow stripping so Flutter can validate the emitted symbol files.
+            if (!isBundleBuild) {
+                keepDebugSymbols += setOf("**/*.so")
+            }
         }
     }
 
@@ -37,7 +73,17 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            ndk {
+                debugSymbolLevel = "SYMBOL_TABLE"
+            }
+
+            // Use a real release keystore when android/key.properties exists.
+            // Fall back to debug signing so local validation builds still work.
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

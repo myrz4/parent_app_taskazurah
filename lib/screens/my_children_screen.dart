@@ -32,7 +32,7 @@ class MyChildrenScreen extends StatelessWidget {
           final child = children[index];
           return Card(
             elevation: 5,
-            shadowColor: Colors.green.withOpacity(0.3),
+            shadowColor: Colors.green.withValues(alpha: 0.3),
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             margin: const EdgeInsets.only(bottom: 16),

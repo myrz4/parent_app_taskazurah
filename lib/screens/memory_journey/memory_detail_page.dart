@@ -27,7 +27,9 @@ class MemoryDetailApp extends StatelessWidget {
         scaffoldBackgroundColor: backgroundDark,
         primaryColor: primary,
       ),
-      home: const MemoryDetailPage(memory: {},),
+      home: const MemoryDetailPage(
+        memory: {},
+      ),
     );
   }
 }
@@ -37,7 +39,6 @@ class MemoryDetailPage extends StatefulWidget {
 
   const MemoryDetailPage({super.key, required this.memory});
 
-
   @override
   State<MemoryDetailPage> createState() => _MemoryDetailPageState();
 }
@@ -46,13 +47,13 @@ class _MemoryDetailPageState extends State<MemoryDetailPage> {
   final TextEditingController _commentController = TextEditingController();
   bool _playing = false;
 
-late final Map<String, String> memory;
+  late final Map<String, String> memory;
 
-@override
-void initState() {
-  super.initState();
-  memory = widget.memory;
-}
+  @override
+  void initState() {
+    super.initState();
+    memory = widget.memory;
+  }
 
   @override
   void dispose() {
@@ -102,7 +103,7 @@ void initState() {
             // Top banner
             Container(
               decoration: BoxDecoration(
-                color: MemoryDetailApp.primary.withOpacity(0.18),
+                color: MemoryDetailApp.primary.withValues(alpha: 0.18),
                 borderRadius: const BorderRadius.vertical(
                   bottom: Radius.circular(18),
                 ),
@@ -149,7 +150,9 @@ void initState() {
                   borderRadius: BorderRadius.circular(14),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(isDark ? 0.25 : 0.06),
+                      color: Colors.black.withValues(
+                        alpha: isDark ? 0.25 : 0.06,
+                      ),
                       blurRadius: 8,
                       offset: const Offset(0, 3),
                     ),
@@ -207,9 +210,8 @@ void initState() {
                             width: 44,
                             height: 44,
                             decoration: BoxDecoration(
-                              color: isDark
-                                  ? Colors.grey[800]
-                                  : Colors.grey[100],
+                              color:
+                                  isDark ? Colors.grey[800] : Colors.grey[100],
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Icon(
@@ -247,9 +249,8 @@ void initState() {
                             width: 44,
                             height: 44,
                             decoration: BoxDecoration(
-                              color: isDark
-                                  ? Colors.grey[800]
-                                  : Colors.grey[100],
+                              color:
+                                  isDark ? Colors.grey[800] : Colors.grey[100],
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Icon(
@@ -331,9 +332,8 @@ void initState() {
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                           borderSide: BorderSide(
-                            color: isDark
-                                ? Colors.grey[800]!
-                                : Colors.grey[200]!,
+                            color:
+                                isDark ? Colors.grey[800]! : Colors.grey[200]!,
                           ),
                         ),
                       ),

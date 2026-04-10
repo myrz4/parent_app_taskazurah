@@ -59,11 +59,14 @@ class _PickupScannerPageState extends State<PickupScannerPage> {
               color: Colors.white,
             ),
             onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
               try {
                 await controller.toggleTorch();
+                if (!mounted) return;
                 setState(() => _torchOn = !_torchOn);
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                if (!mounted) return;
+                messenger.showSnackBar(
                   const SnackBar(
                     content: Text('Flashlight not available'),
                     duration: Duration(seconds: 2),
@@ -155,9 +158,10 @@ class _PickupScannerPageState extends State<PickupScannerPage> {
         'qrToken': tokenValue,
         'teacherName': 'Teacher',
       });
-      final result = Map<String, dynamic>.from(response.data ?? const <String, dynamic>{});
+      final result = Map<String, dynamic>.from(response.data);
       if (result['ok'] != true) {
-        _showResult(false, _reasonToMessage((result['reason'] ?? '').toString()));
+        _showResult(
+            false, _reasonToMessage((result['reason'] ?? '').toString()));
         return;
       }
 

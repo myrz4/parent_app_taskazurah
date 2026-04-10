@@ -16,7 +16,8 @@ class ChatListPage extends StatelessWidget {
 
   static String _norm(String s) => s.trim().toLowerCase();
 
-  static String _chatIdFor({required String teacherId, required String parentId}) {
+  static String _chatIdFor(
+      {required String teacherId, required String parentId}) {
     return 'teacher_${_norm(teacherId)}_parent_${_norm(parentId)}';
   }
 
@@ -83,9 +84,10 @@ class ChatListPage extends StatelessWidget {
                 final teacherName =
                     (data['name'] as String?)?.trim().isNotEmpty == true
                         ? (data['name'] as String).trim()
-                    : teacherId;
+                        : teacherId;
 
-                final chatId = _chatIdFor(teacherId: teacherId, parentId: parentId);
+                final chatId =
+                    _chatIdFor(teacherId: teacherId, parentId: parentId);
                 final chat = chatById[chatId];
                 final lastTs = chat?['lastTimestamp'];
 
@@ -103,13 +105,17 @@ class ChatListPage extends StatelessWidget {
                 final at = a.lastTimestamp;
                 final bt = b.lastTimestamp;
                 if (at == null && bt == null) {
-                  return a.teacherName.toLowerCase().compareTo(b.teacherName.toLowerCase());
+                  return a.teacherName
+                      .toLowerCase()
+                      .compareTo(b.teacherName.toLowerCase());
                 }
                 if (at == null) return 1;
                 if (bt == null) return -1;
                 final cmp = bt.compareTo(at); // desc
                 if (cmp != 0) return cmp;
-                return a.teacherName.toLowerCase().compareTo(b.teacherName.toLowerCase());
+                return a.teacherName
+                    .toLowerCase()
+                    .compareTo(b.teacherName.toLowerCase());
               });
 
               return ListView.builder(
@@ -121,14 +127,15 @@ class ChatListPage extends StatelessWidget {
                       : it.lastMessage.trim();
 
                   return Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                     elevation: 2,
                     child: ListTile(
                       leading: CircleAvatar(
-                        backgroundColor: primary.withOpacity(0.25),
+                        backgroundColor: primary.withValues(alpha: 0.25),
                         child: const Icon(Icons.person, color: Colors.black54),
                       ),
                       title: Text(
@@ -146,7 +153,8 @@ class ChatListPage extends StatelessWidget {
                       ),
                       trailing: it.unread > 0
                           ? Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
                                 color: primary,
                                 borderRadius: BorderRadius.circular(999),

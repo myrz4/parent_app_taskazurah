@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'billing_invoice_presenter.dart';
+import 'billing_payment_status.dart';
 import 'billing_invoice_status_repair.dart';
 
 void main() {
@@ -36,7 +37,6 @@ class MonthlyLedgerApp extends StatelessWidget {
         fontFamily: 'Plus Jakarta Sans',
         textTheme: const TextTheme(bodyMedium: TextStyle(color: textLight)),
       ),
-
       darkTheme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: backgroundDark,
@@ -56,7 +56,8 @@ class MonthlyLedgerPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final args =
+        ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     final parentId = (args?['parentId'] ?? '').toString().trim();
     final parentName = (args?['parentName'] ?? 'Parent').toString().trim();
 
@@ -64,12 +65,10 @@ class MonthlyLedgerPage extends StatelessWidget {
     final bool isDark = theme.brightness == Brightness.dark;
 
     final cardBg = isDark ? Colors.grey[850] : Colors.white;
-    final textPrimary = isDark
-        ? MonthlyLedgerApp.textDark
-        : MonthlyLedgerApp.textLight;
-    final subtle = isDark
-        ? MonthlyLedgerApp.subtleDark
-        : MonthlyLedgerApp.subtleLight;
+    final textPrimary =
+        isDark ? MonthlyLedgerApp.textDark : MonthlyLedgerApp.textLight;
+    final subtle =
+        isDark ? MonthlyLedgerApp.subtleDark : MonthlyLedgerApp.subtleLight;
 
     if (parentId.isEmpty) {
       return const Scaffold(
@@ -157,7 +156,8 @@ class MonthlyLedgerPage extends StatelessWidget {
                     builder: (context, snap) {
                       if (snap.connectionState == ConnectionState.waiting) {
                         return const Center(
-                          child: CircularProgressIndicator(color: MonthlyLedgerApp.primary),
+                          child: CircularProgressIndicator(
+                              color: MonthlyLedgerApp.primary),
                         );
                       }
 
@@ -168,10 +168,13 @@ class MonthlyLedgerPage extends StatelessWidget {
 
                       for (final d in docs) {
                         final m = d.data();
-                        final status = (m['status'] ?? '').toString().toLowerCase();
+                        final status =
+                            (m['status'] ?? '').toString().toLowerCase();
                         final total = (m['totalSen'] is int)
                             ? (m['totalSen'] as int)
-                            : (m['totalSen'] is num ? (m['totalSen'] as num).toInt() : 0);
+                            : (m['totalSen'] is num
+                                ? (m['totalSen'] as num).toInt()
+                                : 0);
 
                         if (status == 'paid') {
                           totalPaidSen += total;
@@ -223,7 +226,9 @@ class MonthlyLedgerPage extends StatelessWidget {
                                     ),
                                     const SizedBox(height: 6),
                                     Text(
-                                      outstandingSen > 0 ? 'Payment required' : 'Up to date',
+                                      outstandingSen > 0
+                                          ? 'Payment required'
+                                          : 'Up to date',
                                       style: TextStyle(
                                         color: outstandingSen > 0
                                             ? MonthlyLedgerApp.statusUnpaid
@@ -244,7 +249,8 @@ class MonthlyLedgerPage extends StatelessWidget {
                           ? Padding(
                               padding: const EdgeInsets.only(top: 24),
                               child: Center(
-                                child: Text('No billing records yet', style: TextStyle(color: subtle)),
+                                child: Text('No billing records yet',
+                                    style: TextStyle(color: subtle)),
                               ),
                             )
                           : Column(
@@ -258,66 +264,69 @@ class MonthlyLedgerPage extends StatelessWidget {
                                         invoiceId: d.id,
                                         invoice: m,
                                       );
-                                      final invoicePresentation = BillingInvoicePresentation.fromInvoice(
+                                      final invoicePresentation =
+                                          BillingInvoicePresentation
+                                              .fromInvoice(
                                         m,
                                         parentNameFallback: parentName,
                                       );
-                                      final status = (m['status'] ?? 'unpaid').toString().toLowerCase();
                                       final totalSen = m['totalSen'] ?? 0;
-                                      final period = (m['period'] ?? '').toString();
+                                      final period =
+                                          (m['period'] ?? '').toString();
 
-                                      Color bg;
-                                      IconData icon;
-                                      String paymentLine;
+                                      return StreamBuilder<
+                                          QuerySnapshot<Map<String, dynamic>>>(
+                                        stream: billingLatestSessionStream(
+                                            parentId: parentId,
+                                            invoiceId: d.id),
+                                        builder: (context, sessionSnap) {
+                                          final latestSession =
+                                              billingLatestSessionFromQuery(
+                                                  sessionSnap.data);
+                                          final paymentStatus =
+                                              billingResolvePaymentStatus(
+                                            invoice: m,
+                                            latestSession: latestSession,
+                                          );
+                                          final bg = _paymentStatusColor(
+                                              paymentStatus);
+                                          final icon =
+                                              _paymentStatusIcon(paymentStatus);
+                                          final title =
+                                              '${period.isEmpty ? 'Invoice' : period} • ${fmtSen(totalSen)}';
+                                          final subtitleBuffer = StringBuffer()
+                                            ..writeln(invoicePresentation
+                                                .supportingLabel)
+                                            ..write(paymentStatus.detail);
+                                          if (invoicePresentation
+                                              .policySummary.isNotEmpty) {
+                                            subtitleBuffer
+                                              ..writeln()
+                                              ..write(invoicePresentation
+                                                      .managementReviewRecommended
+                                                  ? 'Review: ${invoicePresentation.policySummary}'
+                                                  : 'Note: ${invoicePresentation.policySummary}');
+                                          }
+                                          final subtitle =
+                                              subtitleBuffer.toString();
 
-                                      if (status == 'paid') {
-                                        bg = MonthlyLedgerApp.primary;
-                                        icon = Icons.check_circle;
-                                        final paidAt = tsToDate(m['paidAt']);
-                                        paymentLine = paidAt == null
-                                            ? 'Payment completed'
-                                            : 'Paid on: ${DateFormat('d MMM yyyy').format(paidAt)}';
-                                      } else if (status == 'pending') {
-                                        bg = MonthlyLedgerApp.statusPending;
-                                        icon = Icons.hourglass_empty;
-                                        paymentLine = 'Payment pending';
-                                      } else {
-                                        bg = MonthlyLedgerApp.statusUnpaid;
-                                        icon = Icons.error_outline;
-                                        final due = tsToDate(m['dueDate']);
-                                        paymentLine = due == null
-                                            ? 'Payment outstanding'
-                                            : 'Outstanding (due ${DateFormat('d MMM').format(due)})';
-                                      }
-
-                                      final title = '${period.isEmpty ? 'Invoice' : period} • ${fmtSen(totalSen)}';
-                                      final subtitleBuffer = StringBuffer()
-                                        ..writeln(invoicePresentation.supportingLabel)
-                                        ..write(paymentLine);
-                                      if (invoicePresentation.policySummary.isNotEmpty) {
-                                        subtitleBuffer
-                                          ..writeln()
-                                          ..write(invoicePresentation.managementReviewRecommended
-                                              ? 'Review: ${invoicePresentation.policySummary}'
-                                              : 'Note: ${invoicePresentation.policySummary}');
-                                      }
-                                      final subtitle = subtitleBuffer.toString();
-
-                                      return _ledgerEntry(
-                                        context: context,
-                                        iconBackground: bg,
-                                        icon: icon,
-                                        title: title,
-                                        subtitle: subtitle,
-                                        actionLabel: 'Open',
-                                        onTap: () {
-                                          Navigator.pushNamed(
-                                            context,
-                                            '/fee_invoice_details',
-                                            arguments: {
-                                              'parentId': parentId,
-                                              'parentName': parentName,
-                                              'invoiceId': d.id,
+                                          return _ledgerEntry(
+                                            context: context,
+                                            iconBackground: bg,
+                                            icon: icon,
+                                            title: title,
+                                            subtitle: subtitle,
+                                            actionLabel: 'Open',
+                                            onTap: () {
+                                              Navigator.pushNamed(
+                                                context,
+                                                '/fee_invoice_details',
+                                                arguments: {
+                                                  'parentId': parentId,
+                                                  'parentName': parentName,
+                                                  'invoiceId': d.id,
+                                                },
+                                              );
                                             },
                                           );
                                         },
@@ -345,40 +354,54 @@ class MonthlyLedgerPage extends StatelessWidget {
                             bottom: 0,
                             child: Container(
                               color: isDark ? Colors.grey[850] : Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 12),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Container(
-                                    constraints: const BoxConstraints(maxWidth: 600),
+                                    constraints:
+                                        const BoxConstraints(maxWidth: 600),
                                     child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
                                       children: [
                                         Expanded(
                                           child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.center,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.center,
                                             children: [
-                                              Text('Total Paid', style: TextStyle(color: subtle)),
+                                              Text('Total Paid',
+                                                  style:
+                                                      TextStyle(color: subtle)),
                                               const SizedBox(height: 6),
                                               Text(
                                                 fmtSen(totalPaidSen),
-                                                style: TextStyle(color: textPrimary, fontWeight: FontWeight.w700),
+                                                style: TextStyle(
+                                                    color: textPrimary,
+                                                    fontWeight:
+                                                        FontWeight.w700),
                                               ),
                                             ],
                                           ),
                                         ),
                                         Expanded(
                                           child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.center,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.center,
                                             children: [
-                                              Text('Outstanding', style: TextStyle(color: subtle)),
+                                              Text('Outstanding',
+                                                  style:
+                                                      TextStyle(color: subtle)),
                                               const SizedBox(height: 6),
                                               Text(
                                                 fmtSen(outstandingSen),
                                                 style: TextStyle(
                                                   color: outstandingSen > 0
-                                                      ? MonthlyLedgerApp.statusUnpaid
-                                                      : MonthlyLedgerApp.primary,
+                                                      ? MonthlyLedgerApp
+                                                          .statusUnpaid
+                                                      : MonthlyLedgerApp
+                                                          .primary,
                                                   fontWeight: FontWeight.w700,
                                                 ),
                                               ),
@@ -387,15 +410,22 @@ class MonthlyLedgerPage extends StatelessWidget {
                                         ),
                                         Expanded(
                                           child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.center,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.center,
                                             children: [
-                                              Text('Last Payment', style: TextStyle(color: subtle)),
+                                              Text('Last Payment',
+                                                  style:
+                                                      TextStyle(color: subtle)),
                                               const SizedBox(height: 6),
                                               Text(
                                                 lastPaidAt == null
                                                     ? '—'
-                                                    : DateFormat('d MMM yyyy').format(lastPaidAt),
-                                                style: TextStyle(color: textPrimary, fontWeight: FontWeight.w700),
+                                                    : DateFormat('d MMM yyyy')
+                                                        .format(lastPaidAt),
+                                                style: TextStyle(
+                                                    color: textPrimary,
+                                                    fontWeight:
+                                                        FontWeight.w700),
                                               ),
                                             ],
                                           ),
@@ -405,16 +435,20 @@ class MonthlyLedgerPage extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 12),
                                   Container(
-                                    constraints: const BoxConstraints(maxWidth: 600),
-                                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                                    constraints:
+                                        const BoxConstraints(maxWidth: 600),
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 12, horizontal: 12),
                                     decoration: BoxDecoration(
-                                      color: MonthlyLedgerApp.primary.withValues(alpha: 0.18),
+                                      color: MonthlyLedgerApp.primary
+                                          .withValues(alpha: 0.18),
                                       borderRadius: BorderRadius.circular(12),
                                     ),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Icon(Icons.eco, color: MonthlyLedgerApp.primary),
+                                        Icon(Icons.eco,
+                                            color: MonthlyLedgerApp.primary),
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
@@ -457,12 +491,10 @@ class MonthlyLedgerPage extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final cardBg = isDark ? Colors.grey[850] : Colors.white;
-    final textPrimary = isDark
-        ? MonthlyLedgerApp.textDark
-        : MonthlyLedgerApp.textLight;
-    final subtle = isDark
-        ? MonthlyLedgerApp.subtleDark
-        : MonthlyLedgerApp.subtleLight;
+    final textPrimary =
+        isDark ? MonthlyLedgerApp.textDark : MonthlyLedgerApp.textLight;
+    final subtle =
+        isDark ? MonthlyLedgerApp.subtleDark : MonthlyLedgerApp.subtleLight;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -523,5 +555,41 @@ class MonthlyLedgerPage extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Color _paymentStatusColor(BillingPaymentStatus status) {
+    switch (status.tone) {
+      case BillingPaymentStatusTone.success:
+        return MonthlyLedgerApp.primary;
+      case BillingPaymentStatusTone.info:
+        return Colors.blue;
+      case BillingPaymentStatusTone.warning:
+        return MonthlyLedgerApp.statusPending;
+      case BillingPaymentStatusTone.danger:
+        return MonthlyLedgerApp.statusUnpaid;
+      case BillingPaymentStatusTone.neutral:
+        return const Color(0xFF6B7280);
+    }
+  }
+
+  IconData _paymentStatusIcon(BillingPaymentStatus status) {
+    switch (status.key) {
+      case 'paid':
+        return Icons.check_circle;
+      case 'processing':
+        return Icons.sync;
+      case 'pending':
+        return Icons.hourglass_top;
+      case 'expired':
+        return Icons.schedule;
+      case 'failed':
+        return Icons.error_outline;
+      case 'cancelled':
+        return Icons.remove_circle_outline;
+      case 'overdue':
+        return Icons.warning_amber_rounded;
+      default:
+        return Icons.receipt_long;
+    }
   }
 }

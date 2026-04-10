@@ -1,30 +1,71 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:parent_app_taskazurah/main.dart';
+import 'package:parent_app_taskazurah/screens/billing_invoice_presenter.dart';
+import 'package:parent_app_taskazurah/screens/billing_payment_status.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  test('family invoice presentation surfaces linked children clearly', () {
+    final presentation = BillingInvoicePresentation.fromInvoice({
+      'childIds': ['child-a', 'child-b'],
+      'childNames': ['Aisyah', 'Adam'],
+      'billingMeta': {
+        'invoiceScope': 'family',
+        'policyNotes': ['Registration stacked with monthly fee'],
+        'managementReviewRecommended': true,
+      },
+    }, parentNameFallback: 'Parent Example');
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(presentation.isFamily, isTrue);
+    expect(presentation.displayName, 'Family Invoice');
+    expect(presentation.supportingLabel, 'Children covered: Aisyah, Adam');
+    expect(presentation.managementReviewRecommended, isTrue);
+    expect(
+      presentation.policySummary,
+      'Management review recommended',
+    );
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  test('payment status resolves overdue unpaid invoices without a session', () {
+    final status = billingResolvePaymentStatus(
+      invoice: {
+        'status': 'unpaid',
+        'dueDate': DateTime(2026, 4, 1),
+      },
+      now: DateTime(2026, 4, 5),
+    );
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(status.key, 'overdue');
+    expect(status.label, 'Overdue');
+    expect(status.isSettled, isFalse);
+    expect(status.action, BillingPaymentAction.start);
+  });
+
+  test('processing dummy session asks the user to sync payment state', () {
+    final status = billingResolvePaymentStatus(
+      invoice: {
+        'status': 'unpaid',
+        'dueDate': DateTime(2026, 4, 7),
+      },
+      latestSession: BillingLatestSession(
+        sessionId: 'session-1',
+        status: 'processing',
+        sessionState: 'processing',
+        provider: 'dummy',
+        mode: 'dummy',
+        currency: 'MYR',
+        amountSen: 70000,
+        method: 'FPX',
+        bank: 'Maybank2u',
+        receiptNo: '',
+        expiresAt: DateTime(2026, 4, 5, 23, 59),
+        createdAt: DateTime(2026, 4, 5, 10, 0),
+        completedAt: null,
+        lastSyncedAt: null,
+      ),
+      now: DateTime(2026, 4, 5, 10, 5),
+    );
+
+    expect(status.key, 'processing');
+    expect(status.action, BillingPaymentAction.sync);
+    expect(status.primaryActionLabel, 'Check Demo Payment Status');
   });
 }
