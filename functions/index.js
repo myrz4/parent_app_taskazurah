@@ -531,9 +531,7 @@ function registrationChargeRequired(child, periodKey) {
     return !periodKey || appliedPeriod === String(periodKey).trim();
   }
 
-  const registrationDate = child.registeredAt && typeof child.registeredAt.toDate === "function"
-    ? child.registeredAt.toDate()
-    : (child.registeredAt ? new Date(child.registeredAt) : null);
+  const registrationDate = childRegistrationDate(child);
   if (!registrationDate || Number.isNaN(registrationDate.getTime())) {
     return false;
   }
@@ -678,6 +676,57 @@ function monthNumberFromPeriod(period) {
   if (!m) return null;
   const n = Number(m[1]);
   return Number.isFinite(n) ? n : null;
+}
+
+function periodKeyToDate(period) {
+  const match = String(period || "").trim().match(/^(\d{4})-(\d{2})$/);
+  if (!match) return null;
+  const dt = new Date(Number(match[1]), Number(match[2]) - 1, 1, 0, 0, 0, 0);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function shiftPeriodKey(period, monthDelta) {
+  const periodDate = periodKeyToDate(period);
+  if (!periodDate) return null;
+  periodDate.setMonth(periodDate.getMonth() + Number(monthDelta || 0), 1);
+  return monthKey(periodDate);
+}
+
+function startOfLocalDay(dt) {
+  if (!(dt instanceof Date) || Number.isNaN(dt.getTime())) return null;
+  return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 0, 0, 0, 0);
+}
+
+function childRegistrationDate(child) {
+  if (!child || typeof child !== "object") return null;
+
+  const registeredAt = child.registeredAt || child.registrationDate || child.createdAt || null;
+  if (!registeredAt) return null;
+
+  const dt = registeredAt && typeof registeredAt.toDate === "function"
+    ? registeredAt.toDate()
+    : new Date(registeredAt);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function periodLabel(period) {
+  const periodDate = periodKeyToDate(period);
+  if (!periodDate) return String(period || "").trim();
+  const monthNames = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+  return `${monthNames[periodDate.getMonth()]} ${periodDate.getFullYear()}`;
 }
 
 function isSamePeriod(tsOrDate, period) {
@@ -1029,8 +1078,26 @@ function attendanceTimestampToDate(raw) {
   return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
+const MALAYSIA_UTC_OFFSET_MINUTES = 8 * 60;
+
+function malaysiaShift(date) {
+  return new Date(date.getTime() + (MALAYSIA_UTC_OFFSET_MINUTES * 60 * 1000));
+}
+
+function malaysiaDateParts(date) {
+  const shifted = malaysiaShift(date);
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth(),
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes(),
+  };
+}
+
 function attendanceDateKey(dt) {
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  const parts = malaysiaDateParts(dt);
+  return `${parts.year}-${String(parts.month + 1).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
 function attendanceIsoWeekKey(dt) {
@@ -1152,6 +1219,149 @@ function resolveBillingBaseCode({ child, feePlan, careType, ageBand, transitUsag
   return careTypeToCode({ careType: normalizedCareType, feePlan: normalizedFeePlan, ageBand });
 }
 
+function overtimeUsesClosedPreviousMonthCycle(baseCode) {
+  const normalizedBaseCode = String(baseCode || "").trim().toLowerCase();
+  return normalizedBaseCode.startsWith("monthly_fulltime_")
+    || normalizedBaseCode === "transit_2h_month"
+    || normalizedBaseCode === "transit_halfday_month"
+    || normalizedBaseCode === "transit_schoolholiday_month";
+}
+
+async function loadAttendanceRowsForChildPeriod(childId, periodDate) {
+  if (!childId || !(periodDate instanceof Date) || Number.isNaN(periodDate.getTime())) {
+    return [];
+  }
+
+  try {
+    const s = startOfMonth(periodDate);
+    const e = endOfMonth(periodDate);
+    const att = await db.collection("attendance")
+      .where("childId", "==", childId)
+      .where("date", ">=", s)
+      .where("date", "<=", e)
+      .get();
+    return att.docs.map((doc) => doc.data() || {});
+  } catch (err) {
+    console.error("attendance-fetch-failed", { childId, period: monthKey(periodDate), error: String(err && err.message ? err.message : err) });
+    return [];
+  }
+}
+
+function manualOvertimeOverrideForChild(reqData, childId) {
+  const req = reqData && typeof reqData === "object" ? reqData : {};
+  const normalizedChildId = String(childId || "").trim();
+  const byChild = req.manualOvertimeByChild && typeof req.manualOvertimeByChild === "object"
+    ? req.manualOvertimeByChild
+    : null;
+
+  if (byChild && normalizedChildId && byChild[normalizedChildId] && typeof byChild[normalizedChildId] === "object") {
+    return byChild[normalizedChildId];
+  }
+
+  return req.manualOvertime && typeof req.manualOvertime === "object"
+    ? req.manualOvertime
+    : null;
+}
+
+function emptyOvertimeCharge() {
+  return {
+    after530Hours: 0,
+    h8to12Hours: 0,
+    h12to7Hours: 0,
+    lateNightOccurrences: 0,
+    overnightOccurrences: 0,
+    managementReviewRecommended: false,
+    sourcePeriod: "",
+    sourcePeriodLabel: "",
+    cycleStartDate: "",
+    cycleEndDate: "",
+    partialRegistrationMonth: false,
+    attendanceRowCount: 0,
+    cycleMode: "previous-month-closed",
+  };
+}
+
+async function buildClosedOvertimeChargeForInvoice({ child, childId, invoicePeriod, baseCode, reqData }) {
+  if (!overtimeUsesClosedPreviousMonthCycle(baseCode)) {
+    return { applied: false, overtime: null };
+  }
+
+  const sourcePeriod = shiftPeriodKey(invoicePeriod, -1);
+  const sourcePeriodLabel = periodLabel(sourcePeriod);
+  const empty = emptyOvertimeCharge();
+  if (!sourcePeriod) {
+    return {
+      applied: true,
+      overtime: empty,
+    };
+  }
+
+  const registrationDate = childRegistrationDate(child);
+  const registrationPeriod = registrationDate ? monthKey(registrationDate) : "";
+  if (registrationPeriod && sourcePeriod < registrationPeriod) {
+    return {
+      applied: true,
+      overtime: {
+        ...empty,
+        sourcePeriod,
+        sourcePeriodLabel,
+      },
+    };
+  }
+
+  const sourcePeriodDate = periodKeyToDate(sourcePeriod);
+  const cycleEnd = sourcePeriodDate ? endOfMonth(sourcePeriodDate) : null;
+  let cycleStart = sourcePeriodDate ? startOfMonth(sourcePeriodDate) : null;
+  let partialRegistrationMonth = false;
+  if (registrationDate && registrationPeriod === sourcePeriod) {
+    cycleStart = startOfLocalDay(registrationDate);
+    partialRegistrationMonth = Boolean(cycleStart);
+  }
+
+  const manualOvertime = manualOvertimeOverrideForChild(reqData, childId);
+  const sourceAttendanceRows = manualOvertime || !sourcePeriodDate
+    ? []
+    : await loadAttendanceRowsForChildPeriod(childId, sourcePeriodDate);
+
+  const filteredRows = [];
+  for (const row of sourceAttendanceRows) {
+    const attendanceAnchor = attendanceTimestampToDate(row && row.date)
+      || attendanceTimestampToDate(row && (row.checkInAt || row.check_in_time || row.checkInTime || row.checkinTime))
+      || attendanceTimestampToDate(row && (row.checkOutAt || row.check_out_time || row.checkOutTime || row.checkoutTime));
+    if (!attendanceAnchor || !cycleStart || !cycleEnd) continue;
+    if (attendanceAnchor.getTime() < cycleStart.getTime() || attendanceAnchor.getTime() > cycleEnd.getTime()) {
+      continue;
+    }
+    filteredRows.push(row);
+  }
+
+  let overtime = overtimeBucketsFromAttendanceRows(filteredRows);
+  if (manualOvertime) {
+    overtime = {
+      after530Hours: Number.isFinite(Number(manualOvertime.after530Hours)) ? Math.max(0, Math.round(Number(manualOvertime.after530Hours))) : overtime.after530Hours,
+      h8to12Hours: Number.isFinite(Number(manualOvertime.h8to12Hours)) ? Math.max(0, Math.round(Number(manualOvertime.h8to12Hours))) : overtime.h8to12Hours,
+      h12to7Hours: 0,
+      lateNightOccurrences: overtime.lateNightOccurrences,
+      overnightOccurrences: 0,
+      managementReviewRecommended: overtime.managementReviewRecommended,
+    };
+  }
+
+  return {
+    applied: true,
+    overtime: {
+      ...overtime,
+      sourcePeriod,
+      sourcePeriodLabel,
+      cycleStartDate: cycleStart ? attendanceDateKey(cycleStart) : "",
+      cycleEndDate: cycleEnd ? attendanceDateKey(cycleEnd) : "",
+      partialRegistrationMonth,
+      attendanceRowCount: filteredRows.length,
+      cycleMode: "previous-month-closed",
+    },
+  };
+}
+
 function buildBaseFeeItem({ baseCode, unitPriceSen, transitUsage }) {
   if (unitPriceSen == null) return null;
 
@@ -1227,7 +1437,8 @@ function overtimeBucketsFromAttendanceRows(rows) {
     const out = outRaw.toDate ? outRaw.toDate() : new Date(outRaw);
     if (Number.isNaN(out.getTime())) continue;
 
-    const hh = out.getHours() + (out.getMinutes() / 60);
+    const parts = malaysiaDateParts(out);
+    const hh = parts.hour + (parts.minute / 60);
     if (hh > 17.5 && hh <= 20) {
       hAfter530 += (hh - 17.5);
     } else if (hh > 20 && hh < 24) {
@@ -1273,21 +1484,7 @@ async function buildInvoiceItemsFromPdfPolicy({ parentId, childId, period, reqDa
 
   const feePlan = child ? String(child.feePlan || "").trim().toLowerCase() : "";
   const careType = child ? String(child.careType || "fulltime") : "fulltime";
-  let attendanceRows = [];
-  try {
-    if (childId) {
-      const s = startOfMonth(periodDate);
-      const e = endOfMonth(periodDate);
-      const att = await db.collection("attendance")
-        .where("childId", "==", childId)
-        .where("date", ">=", s)
-        .where("date", "<=", e)
-        .get();
-      attendanceRows = att.docs.map((d) => d.data() || {});
-    }
-  } catch (err) {
-    console.error("attendance-fetch-failed", err);
-  }
+  const attendanceRows = await loadAttendanceRowsForChildPeriod(childId, periodDate);
 
   const transitUsage = transitUsageFromAttendanceRows(attendanceRows);
   const baseCode = resolveBillingBaseCode({
@@ -1303,6 +1500,13 @@ async function buildInvoiceItemsFromPdfPolicy({ parentId, childId, period, reqDa
   const items = [];
   const periodKey = period || monthKey(now);
   const isRegistrationMonth = registrationChargeRequired(child, periodKey);
+  const closedOvertimeCharge = await buildClosedOvertimeChargeForInvoice({
+    child,
+    childId,
+    invoicePeriod: periodKey,
+    baseCode,
+    reqData,
+  });
 
   const baseSen = priceFor({ table, code: baseCode, payerType: effectivePayerType });
   const baseItem = buildBaseFeeItem({ baseCode, unitPriceSen: baseSen, transitUsage });
@@ -1385,22 +1589,21 @@ async function buildInvoiceItemsFromPdfPolicy({ parentId, childId, period, reqDa
     }
   }
 
-  let overtime = overtimeBucketsFromAttendanceRows(attendanceRows);
-  const mOver = (reqData && reqData.manualOvertime) ? reqData.manualOvertime : null;
-  if (mOver && typeof mOver === "object") {
-    overtime = {
-      after530Hours: Number.isFinite(Number(mOver.after530Hours)) ? Math.max(0, Math.round(Number(mOver.after530Hours))) : overtime.after530Hours,
-      h8to12Hours: Number.isFinite(Number(mOver.h8to12Hours)) ? Math.max(0, Math.round(Number(mOver.h8to12Hours))) : overtime.h8to12Hours,
-      h12to7Hours: 0,
-      lateNightOccurrences: overtime.lateNightOccurrences,
-      overnightOccurrences: 0,
-      managementReviewRecommended: overtime.managementReviewRecommended,
-    };
-  }
+  const overtime = closedOvertimeCharge.applied
+    ? closedOvertimeCharge.overtime
+    : overtimeBucketsFromAttendanceRows(attendanceRows);
 
   const otMap = [
-    { code: "overtime_after_530", label: "Lebih Masa Selepas 5:30 PM", qty: overtime.after530Hours },
-    { code: "overtime_8pm_12am", label: "Lebih Masa 8:00 PM - 12:00 AM", qty: overtime.h8to12Hours },
+    {
+      code: "overtime_after_530",
+      label: `Lebih Masa Selepas 5:30 PM${closedOvertimeCharge.applied && overtime.sourcePeriodLabel ? ` (${overtime.sourcePeriodLabel})` : ""}`,
+      qty: overtime.after530Hours,
+    },
+    {
+      code: "overtime_8pm_12am",
+      label: `Lebih Masa 8:00 PM - 12:00 AM${closedOvertimeCharge.applied && overtime.sourcePeriodLabel ? ` (${overtime.sourcePeriodLabel})` : ""}`,
+      qty: overtime.h8to12Hours,
+    },
   ];
   for (const row of otMap) {
     if (!row.qty || row.qty <= 0) continue;
@@ -1445,6 +1648,15 @@ async function buildInvoiceItemsFromPdfPolicy({ parentId, childId, period, reqDa
     isRegistrationMonth
       ? "Bayaran pendaftaran dan bayaran ketika mendaftar tidak akan dikembalikan."
       : null,
+    closedOvertimeCharge.applied && (Number(overtime.after530Hours || 0) > 0 || Number(overtime.h8to12Hours || 0) > 0) && overtime.sourcePeriodLabel
+      ? `Lebih masa bagi ${overtime.sourcePeriodLabel} dimasukkan secara berasingan dalam invois ini selepas kitaran bulan tersebut ditutup.`
+      : null,
+    closedOvertimeCharge.applied
+      && (Number(overtime.after530Hours || 0) > 0 || Number(overtime.h8to12Hours || 0) > 0 || Number(overtime.h12to7Hours || 0) > 0)
+      && overtime.partialRegistrationMonth
+      && overtime.cycleStartDate
+      ? `Kiraan lebih masa untuk ${overtime.sourcePeriodLabel} bermula pada ${overtime.cycleStartDate} mengikut tarikh pendaftaran.`
+      : null,
     hasLetter && Number.isFinite(absDays) && absDays > 14
       ? "Potongan 10% telah digunakan kerana tidak hadir melebihi 14 hari dengan surat."
       : null,
@@ -1479,7 +1691,13 @@ async function buildInvoiceItemsFromPdfPolicy({ parentId, childId, period, reqDa
       transitUsage,
       policyNotes,
       managementReviewRecommended: Boolean(overtime.managementReviewRecommended || ageProfile.ageOutOfPolicy),
-      overtime,
+      overtime: {
+        ...overtime,
+        billedInPeriod: periodKey,
+        sourcePeriod: closedOvertimeCharge.applied ? String(overtime.sourcePeriod || "") : periodKey,
+        sourcePeriodLabel: closedOvertimeCharge.applied ? String(overtime.sourcePeriodLabel || "") : periodLabel(periodKey),
+        cycleMode: closedOvertimeCharge.applied ? "previous-month-closed" : "same-period",
+      },
       absenceAdjustment,
       resolvedBaseCode: baseCode,
       ageOutOfPolicy: Boolean(ageProfile.ageOutOfPolicy),
@@ -1503,10 +1721,12 @@ exports.billingCreateDemoInvoiceForCurrentMonth = onCall({ region: "asia-southea
     parentData,
     period,
     reqData: req.data || {},
-    createdByKind: "parent-demo",
+    createdByKind: "parent-app",
     fallbackChildId: childId,
   });
 });
+
+exports.billingCreateInvoiceForCurrentMonth = exports.billingCreateDemoInvoiceForCurrentMonth;
 
 exports.billingCreateDummyCheckoutSession = onCall({ region: "asia-southeast1" }, async (req) => {
   requireAuth(req);
