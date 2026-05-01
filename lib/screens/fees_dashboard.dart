@@ -41,11 +41,104 @@ class FeesPaymentApp extends StatelessWidget {
   }
 }
 
-class FeesPaymentPage extends StatelessWidget {
+class FeesPaymentPage extends StatefulWidget {
   const FeesPaymentPage({super.key});
 
-  final String avatarUrl =
+  @override
+  State<FeesPaymentPage> createState() => _FeesPaymentPageState();
+}
+
+class _FeesPaymentPageState extends State<FeesPaymentPage> {
+  static const String _avatarUrl =
       'https://lh3.googleusercontent.com/aida-public/AB6AXuDVc0xV6ymf5YntytIkU8k4NsWhY_Q667s_0AwlCkDW0yd6wCkcnt1oR6Z_KOc6Allxs3VlmDg5grwefKneQznN-euV7Vyr0F3hR7zJWJLyzNmRhHSkfBCti7HlXvKMbXXvAh9VVYYYgDBNHlu6PpWMzxje4N2KmCbRBLbZoyf206Db_UwSKyJjlKDuuP_yUwauUgTCwMlhpiYy2_PKTFSlHDF5qMoKFxVH14puY34621mqIJMlnjfkbBrmD3Vl6_ypVTODox5kEo-L';
+
+  bool _isPreparingCurrentInvoice = false;
+  String _prepareRequestKey = '';
+  String? _prepareError;
+
+  Future<void> _prepareCurrentInvoice({
+    required String parentId,
+    required String requestKey,
+  }) async {
+    if (_isPreparingCurrentInvoice) {
+      return;
+    }
+
+    setState(() {
+      _isPreparingCurrentInvoice = true;
+      _prepareRequestKey = requestKey;
+      _prepareError = null;
+    });
+
+    try {
+      final functions = FirebaseFunctions.instanceFor(region: 'asia-southeast1');
+      HttpsCallableResult<dynamic>? res;
+      try {
+        res = await functions.httpsCallable('billingCreateInvoiceForCurrentMonth').call({
+          'parentId': parentId,
+        });
+      } on FirebaseFunctionsException catch (error) {
+        if (error.code != 'not-found' && error.code != 'unimplemented') {
+          rethrow;
+        }
+      }
+      res ??= await functions.httpsCallable('billingCreateDemoInvoiceForCurrentMonth').call({
+        'parentId': parentId,
+      });
+      final data = (res.data as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      if (data['ok'] != true) {
+        throw Exception(data['reason'] ?? 'unable-to-prepare-current-billing');
+      }
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _prepareError = null;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _prepareError = _prepareInvoiceErrorMessage(error);
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPreparingCurrentInvoice = false;
+        });
+      }
+    }
+  }
+
+  void _scheduleCurrentInvoicePreparation({
+    required String parentId,
+    required String requestKey,
+  }) {
+    if (_prepareRequestKey == requestKey || _isPreparingCurrentInvoice) {
+      return;
+    }
+
+    _prepareRequestKey = requestKey;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _prepareCurrentInvoice(parentId: parentId, requestKey: requestKey);
+    });
+  }
+
+  String _prepareInvoiceErrorMessage(Object error) {
+    final message = error.toString();
+    if (message.contains('no-linked-children')) {
+      return 'No linked child was found for this account yet.';
+    }
+    if (message.contains('no-billable-items')) {
+      return 'Current billing is not available yet.';
+    }
+    return 'Current billing could not be prepared right now.';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,6 +165,7 @@ class FeesPaymentPage extends StatelessWidget {
 
     final now = DateTime.now();
     final period = DateFormat('yyyy-MM').format(now);
+    final requestKey = '$parentId::$period';
     final money = NumberFormat.currency(locale: 'ms_MY', symbol: 'RM');
 
     String fmtSen(Object? raw) {
@@ -100,7 +194,16 @@ class FeesPaymentPage extends StatelessWidget {
                 break;
               }
             }
+            if (latest == null) {
+              _scheduleCurrentInvoicePreparation(
+                parentId: parentId,
+                requestKey: requestKey,
+              );
+            }
             final inv = latest?.data() ?? <String, dynamic>{};
+            final isPreparingCurrentInvoice = latest == null &&
+                _prepareRequestKey == requestKey &&
+                _prepareError == null;
             if (latest != null) {
               BillingInvoiceStatusRepair.maybeRepair(
                 parentId: parentId,
@@ -115,15 +218,6 @@ class FeesPaymentPage extends StatelessWidget {
             final totalSen = inv['totalSen'] ?? 0;
             final items =
                 (inv['items'] is List) ? (inv['items'] as List) : const [];
-
-            Future<void> createDemoInvoice() async {
-              final fn =
-                  FirebaseFunctions.instanceFor(region: 'asia-southeast1')
-                      .httpsCallable('billingCreateDemoInvoiceForCurrentMonth');
-              await fn.call({
-                'parentId': parentId,
-              });
-            }
 
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: latest == null
@@ -174,7 +268,7 @@ class FeesPaymentPage extends StatelessWidget {
                             height: 40,
                             child: ClipOval(
                               child: Image.network(
-                                avatarUrl,
+                                _avatarUrl,
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, __, ___) =>
                                     Container(color: Colors.grey),
@@ -330,7 +424,13 @@ class FeesPaymentPage extends StatelessWidget {
 
                               // Fee lines
                               if (latest == null) ...[
-                                _feeRow('No billing record yet', '—', isDark),
+                                _feeRow(
+                                  isPreparingCurrentInvoice
+                                      ? 'Preparing current billing...'
+                                      : 'Current billing is not available yet',
+                                  '—',
+                                  isDark,
+                                ),
                               ] else ...[
                                 for (final it in items.take(4)) ...[
                                   _feeRow(
@@ -409,39 +509,100 @@ class FeesPaymentPage extends StatelessWidget {
 
                     const SizedBox(height: 12),
 
-                    if (latest == null)
+                    if (latest == null && isPreparingCurrentInvoice)
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: SizedBox(
-                          height: 52,
-                          child: ElevatedButton(
-                            onPressed: () async {
-                              try {
-                                await createDemoInvoice();
-                              } catch (_) {
-                                if (!context.mounted) return;
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text(
-                                          'Unable to create demo billing record')),
-                                );
-                              }
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: primary,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: cardBg,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color.fromRGBO(0, 0, 0, 0.08),
+                                blurRadius: 8,
+                                offset: Offset(0, 2),
                               ),
-                              elevation: 6,
-                            ),
-                            child: const Text(
-                              'Generate Demo Billing Record',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 16,
-                                  color: Colors.white),
-                            ),
+                            ],
                           ),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: primary,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Preparing the current billing record for payment.',
+                                  style: TextStyle(
+                                    color: muted,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    if (latest == null && _prepareError != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.orange.withValues(alpha: 0.28),
+                                ),
+                              ),
+                              child: Text(
+                                _prepareError!,
+                                style: TextStyle(
+                                  color: isDark
+                                      ? Colors.white
+                                      : const Color(0xFF111714),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              height: 52,
+                              child: ElevatedButton(
+                                onPressed: () {
+                                  _prepareCurrentInvoice(
+                                    parentId: parentId,
+                                    requestKey: requestKey,
+                                  );
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: primary,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  elevation: 6,
+                                ),
+                                child: const Text(
+                                  'Refresh Current Billing',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 16,
+                                      color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
 

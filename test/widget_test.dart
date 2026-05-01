@@ -39,7 +39,7 @@ void main() {
     expect(status.action, BillingPaymentAction.start);
   });
 
-  test('processing dummy session asks the user to sync payment state', () {
+  test('processing session asks the user to sync payment state', () {
     final status = billingResolvePaymentStatus(
       invoice: {
         'status': 'unpaid',
@@ -66,6 +66,6 @@ void main() {
 
     expect(status.key, 'processing');
     expect(status.action, BillingPaymentAction.sync);
-    expect(status.primaryActionLabel, 'Check Demo Payment Status');
+    expect(status.primaryActionLabel, 'Check Payment Status');
   });
 }

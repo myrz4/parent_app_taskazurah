@@ -176,11 +176,10 @@ BillingPaymentStatus billingResolvePaymentStatus({
       return BillingPaymentStatus(
         key: 'processing',
         label: 'Processing',
-        detail:
-            'Payment authorized. Waiting for confirmation from the demo gateway.',
+        detail: 'Payment authorized. Waiting for confirmation.',
         tone: BillingPaymentStatusTone.info,
         action: BillingPaymentAction.sync,
-        primaryActionLabel: 'Check Demo Payment Status',
+        primaryActionLabel: 'Check Payment Status',
         isSettled: false,
       );
     }
@@ -191,11 +190,10 @@ BillingPaymentStatus billingResolvePaymentStatus({
         return BillingPaymentStatus(
           key: 'expired',
           label: 'Expired',
-          detail:
-              'The last payment session expired. Start a new demo payment session.',
+          detail: 'The last payment session expired. Start a new payment session.',
           tone: BillingPaymentStatusTone.warning,
           action: BillingPaymentAction.start,
-          primaryActionLabel: 'Start New Demo Payment',
+          primaryActionLabel: 'Start New Payment',
           isSettled: false,
         );
       }
@@ -210,8 +208,7 @@ BillingPaymentStatus billingResolvePaymentStatus({
         action: latestSession.supportsInAppDummyFlow
             ? BillingPaymentAction.resume
             : BillingPaymentAction.none,
-        primaryActionLabel:
-            latestSession.supportsInAppDummyFlow ? 'Resume Demo Payment' : '',
+        primaryActionLabel: latestSession.supportsInAppDummyFlow ? 'Resume Payment' : '',
         isSettled: false,
       );
     }
@@ -220,11 +217,10 @@ BillingPaymentStatus billingResolvePaymentStatus({
       return BillingPaymentStatus(
         key: 'expired',
         label: 'Expired',
-        detail:
-            'The last payment session expired. Start a new demo payment session.',
+        detail: 'The last payment session expired. Start a new payment session.',
         tone: BillingPaymentStatusTone.warning,
         action: BillingPaymentAction.start,
-        primaryActionLabel: 'Start New Demo Payment',
+        primaryActionLabel: 'Start New Payment',
         isSettled: false,
       );
     }
@@ -233,11 +229,10 @@ BillingPaymentStatus billingResolvePaymentStatus({
       return BillingPaymentStatus(
         key: 'failed',
         label: 'Failed',
-        detail:
-            'The last payment attempt failed. Start a new demo payment session.',
+        detail: 'The last payment attempt failed. Start a new payment session.',
         tone: BillingPaymentStatusTone.danger,
         action: BillingPaymentAction.start,
-        primaryActionLabel: 'Start New Demo Payment',
+        primaryActionLabel: 'Start New Payment',
         isSettled: false,
       );
     }
@@ -246,11 +241,10 @@ BillingPaymentStatus billingResolvePaymentStatus({
       return BillingPaymentStatus(
         key: 'cancelled',
         label: 'Cancelled',
-        detail:
-            'The last payment session was cancelled. Start a new demo payment session.',
+        detail: 'The last payment session was cancelled. Start a new payment session.',
         tone: BillingPaymentStatusTone.neutral,
         action: BillingPaymentAction.start,
-        primaryActionLabel: 'Start New Demo Payment',
+        primaryActionLabel: 'Start New Payment',
         isSettled: false,
       );
     }
@@ -265,7 +259,7 @@ BillingPaymentStatus billingResolvePaymentStatus({
           : 'Payment is overdue since ${_dateLabel(dueDate)}.',
       tone: BillingPaymentStatusTone.danger,
       action: BillingPaymentAction.start,
-      primaryActionLabel: 'Run Demo Payment',
+      primaryActionLabel: 'Pay Now',
       isSettled: false,
     );
   }
@@ -278,7 +272,7 @@ BillingPaymentStatus billingResolvePaymentStatus({
         : 'Payment due on ${_dateLabel(dueDate)}.',
     tone: BillingPaymentStatusTone.neutral,
     action: BillingPaymentAction.start,
-    primaryActionLabel: 'Run Demo Payment',
+    primaryActionLabel: 'Pay Now',
     isSettled: false,
   );
 }

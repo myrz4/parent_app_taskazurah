@@ -85,7 +85,7 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
       if (paid) return true;
       if (status == 'expired' || status == 'failed' || status == 'cancelled') {
         setState(() {
-          _error = 'Simulated payment $status. Please start again.';
+          _error = 'Payment could not be completed. Please start again.';
           _stage = _DemoCheckoutStage.bank;
         });
         return false;
@@ -118,7 +118,7 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
       final ok = data['ok'] == true;
       if (!ok) {
         setState(() {
-          _error = 'Simulated payment failed (${data['reason'] ?? 'unknown'}).';
+          _error = 'Payment failed (${data['reason'] ?? 'unknown'}).';
           _stage = _DemoCheckoutStage.bank;
           _isPaying = false;
         });
@@ -133,11 +133,11 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
       }
 
       setState(() {
-        _error ??= 'Simulated payment is still processing. Check status again in a moment.';
+        _error ??= 'Payment is still processing. Check status again in a moment.';
       });
     } catch (e) {
       setState(() {
-        _error = 'Simulated payment failed. Please try again.';
+        _error = 'Payment failed. Please try again.';
         _stage = _DemoCheckoutStage.bank;
       });
     } finally {
@@ -164,7 +164,7 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
 
     if (_stage == _DemoCheckoutStage.credentials) {
       if (_bankUserIdController.text.trim().isEmpty || _bankPasswordController.text.isEmpty) {
-        setState(() => _error = 'Enter your simulated bank login details.');
+        setState(() => _error = 'Enter the required bank details to continue.');
         return;
       }
       setState(() {
@@ -195,11 +195,11 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
         return;
       }
       setState(() {
-        _error ??= 'Simulated payment is still processing. Please try again shortly.';
+        _error ??= 'Payment is still processing. Please try again shortly.';
       });
     } catch (e) {
       setState(() {
-        _error = 'Unable to verify the simulated payment yet. Please try again.';
+        _error = 'Unable to verify the payment yet. Please try again.';
       });
     } finally {
       if (mounted) {
@@ -217,9 +217,9 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
       case _DemoCheckoutStage.credentials:
         return 'Request TAC';
       case _DemoCheckoutStage.otp:
-        return 'Authorize Demo Payment';
+        return 'Authorize Payment';
       case _DemoCheckoutStage.processing:
-        return 'Check Demo Payment Status';
+        return 'Check Payment Status';
     }
   }
 
@@ -254,7 +254,7 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
                       color: isSelected ? DemoCheckoutPage.primary : muted,
                     ),
                     title: Text(b, style: TextStyle(color: textColor)),
-                    subtitle: const Text('Simulated FPX online banking'),
+                    subtitle: const Text('FPX online banking'),
                   );
                 },
               )
@@ -280,7 +280,7 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('$_selectedBank Demo Login', style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
+            Text('$_selectedBank Online Banking', style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
             const SizedBox(height: 12),
             TextField(
               controller: _bankUserIdController,
@@ -296,7 +296,7 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
             ),
             const SizedBox(height: 12),
             Text(
-              'This simulator does not store real credentials or contact a real bank. Use any values to continue.',
+              'Enter the requested details to continue this payment step.',
               style: TextStyle(color: muted, fontSize: 13),
             ),
           ],
@@ -321,10 +321,10 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Demo Transaction Authorization Code', style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
+            Text('Transaction Authorization Code', style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
             const SizedBox(height: 12),
             Text(
-              'Enter any 6-digit TAC to simulate the final bank authorization step.',
+              'Enter the 6-digit TAC to complete the authorization step.',
               style: TextStyle(color: muted, fontSize: 13),
             ),
             const SizedBox(height: 12),
@@ -357,7 +357,7 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Demo Payment Processing', style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
+          Text('Payment Processing', style: TextStyle(color: textColor, fontWeight: FontWeight.w700)),
           const SizedBox(height: 12),
           Row(
             children: [
@@ -369,7 +369,7 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Your simulated bank authorization was submitted. Settlement now follows the same async session pattern used by this dummy rollout.',
+                  'Your bank authorization was submitted. Confirmation is now being processed.',
                   style: TextStyle(color: muted, fontSize: 13),
                 ),
               ),
@@ -401,7 +401,7 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
                 const Expanded(
                   child: Center(
                     child: Text(
-                      'Demo Payment Simulator',
+                      'Online Banking Payment',
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                     ),
                   ),
@@ -427,7 +427,7 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Amount to Simulate', style: TextStyle(color: muted)),
+                  Text('Amount to Pay', style: TextStyle(color: muted)),
                   const SizedBox(height: 6),
                   Text(
                     _formatSen(widget.amountSen),
@@ -439,7 +439,7 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Dummy provider only. The checkout steps and async settlement are simulated end to end for this rollout.',
+                    'Complete payment in-app and keep this screen open until confirmation is received.',
                     style: TextStyle(color: muted, fontSize: 13),
                   ),
                   const SizedBox(height: 8),
@@ -454,7 +454,7 @@ class _DemoCheckoutPageState extends State<DemoCheckoutPage> {
             const SizedBox(height: 16),
 
             Text(
-              'Demo Payment Flow',
+              'Payment Flow',
               style: TextStyle(color: textColor, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),

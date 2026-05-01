@@ -191,8 +191,7 @@ class InvoiceDetailsPage extends StatelessWidget {
                   (data['provider'] ?? 'dummy').toString().toLowerCase();
 
               if (provider != 'dummy' || mode != 'dummy') {
-                throw Exception(
-                    'This rollout only supports the dummy payment simulator.');
+                throw Exception('This payment flow is not available right now.');
               }
 
               final ok = await Navigator.of(context).push<bool>(
@@ -210,7 +209,7 @@ class InvoiceDetailsPage extends StatelessWidget {
               if (ok == true && context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                      content: Text('Demo payment completed successfully.')),
+                      content: Text('Payment completed successfully.')),
                 );
               }
             }
@@ -228,7 +227,7 @@ class InvoiceDetailsPage extends StatelessWidget {
                 final isPaid = status == 'paid' || paymentStatus.isSettled;
                 final statusColor = _paymentStatusColor(paymentStatus);
 
-                Future<void> resumeDemoPayment() async {
+                Future<void> resumePaymentFlow() async {
                   if (latestSession == null ||
                       !latestSession.supportsInAppDummyFlow) {
                     await startPayFlow();
@@ -252,8 +251,7 @@ class InvoiceDetailsPage extends StatelessWidget {
                   if (ok == true && context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                          content:
-                              Text('Demo payment completed successfully.')),
+                          content: Text('Payment completed successfully.')),
                     );
                   }
                 }
@@ -283,8 +281,7 @@ class InvoiceDetailsPage extends StatelessWidget {
                   if (data['paid'] == true || syncedStatus == 'succeeded') {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                          content:
-                              Text('Demo payment confirmed successfully.')),
+                          content: Text('Payment confirmed successfully.')),
                     );
                     return;
                   }
@@ -293,7 +290,7 @@ class InvoiceDetailsPage extends StatelessWidget {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                           content: Text(
-                              'Demo payment is still processing. Please check again shortly.')),
+                              'Payment is still processing. Please check again shortly.')),
                     );
                     return;
                   }
@@ -302,7 +299,7 @@ class InvoiceDetailsPage extends StatelessWidget {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                           content: Text(
-                              'The last demo payment session expired. Start a new one.')),
+                              'The last payment session expired. Start a new one.')),
                     );
                     return;
                   }
@@ -311,7 +308,7 @@ class InvoiceDetailsPage extends StatelessWidget {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                           content: Text(
-                              'This demo payment session is still awaiting authorization.')),
+                              'This payment session is still awaiting authorization.')),
                     );
                     return;
                   }
@@ -331,7 +328,7 @@ class InvoiceDetailsPage extends StatelessWidget {
                       await startPayFlow();
                       return;
                     case BillingPaymentAction.resume:
-                      await resumeDemoPayment();
+                      await resumePaymentFlow();
                       return;
                     case BillingPaymentAction.sync:
                       await syncLatestSession();
@@ -579,7 +576,7 @@ class InvoiceDetailsPage extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
-                                'Current rollout uses a realistic dummy payment simulator. No real bank or payment gateway will be charged.',
+                                'Payment confirmation is handled in-app for this release. Keep this screen open until the status updates.',
                                 style: TextStyle(
                                     color: textColor,
                                     fontWeight: FontWeight.w600),
@@ -591,19 +588,19 @@ class InvoiceDetailsPage extends StatelessWidget {
                             label: 'Payment Method',
                             value: isPaid
                                 ? (paidMethod.isEmpty
-                                    ? 'Demo Online Banking Simulator'
-                                    : '$paidMethod (simulated)')
+                                ? 'Online Banking'
+                                : paidMethod)
                                 : (latestSession?.method.isNotEmpty == true
-                                    ? '${latestSession!.method} (simulated)'
+                                ? latestSession!.method
                                     : '—'),
                             valueColor: textColor,
                           ),
                           const SizedBox(height: 8),
                           _lineItem(
-                            label: 'Simulated Bank',
+                            label: 'Bank',
                             value: isPaid
                                 ? (paidBank.isEmpty
-                                    ? 'Demo Bank Selection'
+                                ? 'Online Banking'
                                     : paidBank)
                                 : (latestSession?.bank.isNotEmpty == true
                                     ? latestSession!.bank
@@ -701,9 +698,9 @@ class InvoiceDetailsPage extends StatelessWidget {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(
-                                  message.contains('dummy payment simulator')
-                                      ? 'This rollout only supports the dummy payment simulator.'
-                                      : 'Unable to continue the demo payment flow.',
+                                  message.contains('payment flow is not available right now')
+                                      ? 'This payment flow is not available right now.'
+                                      : 'Unable to continue the payment flow.',
                                 ),
                               ),
                             );
