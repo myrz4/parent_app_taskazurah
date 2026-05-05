@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:parent_app_taskazurah/screens/chat_screen.dart';
 
+import 'teacher_activity_page.dart';
+
 class Teacher {
   final String id;
   final String name;
   final String imageUrl;
   final String experience;
+  final String username;
 
   const Teacher({
     required this.id,
     required this.name,
     required this.imageUrl,
     required this.experience,
+    this.username = '',
   });
 }
 
@@ -40,7 +44,6 @@ class TeacherProfilePage extends StatelessWidget {
     final textColor = isDark ? textDark : textLight;
     final textSecondary = isDark ? textSecondaryDark : textSecondaryLight;
     final cardBg = isDark ? Colors.black.withValues(alpha: 0.25) : Colors.white;
-    final dividerColor = isDark ? Colors.grey.shade800 : Colors.grey.shade200;
 
     return Scaffold(
       appBar: AppBar(
@@ -91,11 +94,31 @@ class TeacherProfilePage extends StatelessWidget {
                     ),
                     textAlign: TextAlign.center,
                   ),
+                  if (teacher.username.trim().isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '@${teacher.username}',
+                        style: TextStyle(
+                          color: primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 20),
 
-              // Info Card
+              // Profile details
               Card(
                 color: cardBg,
                 shape: RoundedRectangleBorder(
@@ -110,28 +133,51 @@ class TeacherProfilePage extends StatelessWidget {
                   child: Column(
                     children: [
                       _infoRow(
-                        Icons.group,
-                        'Total students',
-                        '12 Students',
-                        textSecondary,
-                        textColor,
-                        dividerColor,
-                      ),
-                      _infoRow(
                         Icons.star,
                         'Experience',
                         teacher.experience,
                         textSecondary,
                         textColor,
-                        dividerColor,
+                        isDark ? Colors.grey.shade800 : Colors.grey.shade200,
                       ),
+                      if (teacher.username.trim().isNotEmpty)
+                        _infoRow(
+                          Icons.badge_outlined,
+                          'Username',
+                          teacher.username,
+                          textSecondary,
+                          textColor,
+                          isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+                        ),
+                      if (parentId?.trim().isNotEmpty == true)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Text(
+                            'Messages and activity updates shown here are scoped to your family account.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1.45,
+                              color: textSecondary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      if (teacher.username.trim().isEmpty && teacher.experience.trim().isEmpty)
+                        Text(
+                          'No public teacher profile details are available yet.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            height: 1.45,
+                            color: textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: 16),
 
-              // About Card
               Card(
                 color: cardBg,
                 shape: RoundedRectangleBorder(
@@ -139,44 +185,28 @@ class TeacherProfilePage extends StatelessWidget {
                 ),
                 elevation: 4,
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
                     children: [
-                      Text(
-                        'About Me',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: textColor,
-                        ),
+                      Icon(
+                        Icons.collections_bookmark_outlined,
+                        color: primary,
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Cikgu ${teacher.name.split(" ").last} has over ${teacher.experience} of experience teaching early childhood learners. '
-                        'She is known for her caring approach and creative activities.',
-                        style: TextStyle(
-                          fontSize: 14,
-                          height: 1.5,
-                          color: textSecondary,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Open the activity feed to view teacher memories that involve your linked child records.',
+                          style: TextStyle(
+                            fontSize: 14,
+                            height: 1.45,
+                            color: textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-
-              // Badges
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: const [
-                  _Badge(emoji: '🌸', text: 'Early Childhood Educator'),
-                  _Badge(emoji: '💬', text: 'Communicative'),
-                  _Badge(emoji: '🎨', text: 'Creative Learning'),
-                ],
               ),
 
               const SizedBox(height: 96),
@@ -254,7 +284,7 @@ class TeacherProfilePage extends StatelessWidget {
 
               const SizedBox(height: 8),
 
-              // 🔹 View Activities (placeholder)
+              // 🔹 View Activities
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
@@ -272,9 +302,23 @@ class TeacherProfilePage extends StatelessWidget {
                     ),
                   ),
                   onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('View Activities clicked'),
+                    final pid = (parentId ?? '').trim();
+                    if (pid.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Open this profile from the parent dashboard to load family activity updates.'),
+                        ),
+                      );
+                      return;
+                    }
+
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => TeacherActivityPage(
+                          teacher: teacher,
+                          parentId: pid,
+                        ),
                       ),
                     );
                   },
@@ -323,40 +367,6 @@ class TeacherProfilePage extends StatelessWidget {
         ),
         Divider(height: 1, color: dividerColor),
       ],
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  final String emoji;
-  final String text;
-  const _Badge({required this.emoji, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final bg = TeacherProfilePage.primary.withValues(alpha: 0.18);
-    final fg = TeacherProfilePage.primary;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(emoji, style: const TextStyle(fontSize: 14)),
-          const SizedBox(width: 8),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: fg,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

@@ -53,10 +53,23 @@ Future<void> main() async {
           .setSettings(appVerificationDisabledForTesting: true);
     }
 
-    // 🔔 FCM background handler
+  } catch (e) {
+    debugPrint('🔥 Error initializing Firebase: $e');
+  }
+
+  runApp(const MyApp());
+  _bootstrapNotifications();
+}
+
+Future<void> _bootstrapNotifications() async {
+  if (kIsWeb) {
+    debugPrint('🌐 Skipping automatic notification permission prompt on web startup.');
+    return;
+  }
+
+  try {
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // 🔔 Local notification setup
     const AndroidInitializationSettings androidInit =
         AndroidInitializationSettings('@mipmap/ic_launcher');
     const InitializationSettings initSettings =
@@ -65,34 +78,28 @@ Future<void> main() async {
     await flutterLocalNotificationsPlugin.initialize(
       initSettings,
       onDidReceiveNotificationResponse: (details) {
-        // Bila tekan noti → buka attendance dashboard
         navigatorKey.currentState?.pushNamed('/attendance_dashboard');
       },
     );
 
-    // 🔔 Request notification permission
     final fcm = FirebaseMessaging.instance;
-    NotificationSettings settings = await fcm.requestPermission(
+    final settings = await fcm.requestPermission(
       alert: true,
       badge: true,
       sound: true,
     );
     debugPrint('🔔 Permission status: ${settings.authorizationStatus}');
 
-    // 🔔 Dapatkan dan print FCM token
-    String? token = await fcm.getToken();
+    final token = await fcm.getToken();
     debugPrint('📱 Parent FCM Token: $token');
 
-    // 🔔 Listen to foreground messages (masa app tengah buka)
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       debugPrint('📨 Foreground message: ${message.notification?.title}');
       await _showLocalNotification(message);
     });
   } catch (e) {
-    debugPrint('🔥 Error initializing Firebase: $e');
+    debugPrint('🔥 Error bootstrapping notifications: $e');
   }
-
-  runApp(const MyApp());
 }
 
 // 🔔 Function untuk paparkan notification masa foreground

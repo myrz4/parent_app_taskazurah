@@ -106,6 +106,9 @@ class TeacherListPage extends StatelessWidget {
                                 imageUrl: image,
                                 experience:
                                     experience.isEmpty ? 'N/A' : experience,
+                                username: (raw['username'] ?? d.id)
+                                    .toString()
+                                    .trim(),
                               );
                             })
                             .whereType<Teacher>()

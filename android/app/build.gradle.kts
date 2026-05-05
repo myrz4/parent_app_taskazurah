@@ -12,6 +12,9 @@ val hasReleaseKeystore = keystorePropertiesFile.exists()
 val isBundleBuild = gradle.startParameter.taskNames.any {
     it.contains("bundle", ignoreCase = true)
 }
+val keepApkDebugSymbols = providers.gradleProperty("taskaKeepApkDebugSymbols")
+    .map { it.equals("true", ignoreCase = true) }
+    .orElse(false)
 val isReleaseBuild = gradle.startParameter.taskNames.any {
     it.contains("release", ignoreCase = true)
 }
@@ -44,10 +47,10 @@ android {
 
     packaging {
         jniLibs {
-            // Prevent APK build failures on Windows where stripDebugSymbols can
-            // intermittently fail for merged native libraries. For app bundles,
-            // allow stripping so Flutter can validate the emitted symbol files.
-            if (!isBundleBuild) {
+            // Keep symbol-heavy native libraries out of release APKs by default.
+            // If Windows strip failures return, opt back in with:
+            //   .\gradlew assembleRelease -PtaskaKeepApkDebugSymbols=true
+            if (!isBundleBuild && keepApkDebugSymbols.get()) {
                 keepDebugSymbols += setOf("**/*.so")
             }
         }
