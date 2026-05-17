@@ -7,6 +7,8 @@ import 'billing_invoice_presenter.dart';
 import 'billing_payment_status.dart';
 import 'billing_invoice_status_repair.dart';
 import 'demo_checkout.dart';
+import 'stripe_demo_payment.dart';
+import 'stripe_demo_payment_completed.dart';
 
 void main() {
   runApp(const InvoiceDetailsApp());
@@ -158,60 +160,107 @@ class InvoiceDetailsPage extends StatelessWidget {
             final paidAt = tsToDate(inv['paidAt']);
             final paidMethod = (inv['paidMethod'] ?? '').toString();
             final paidBank = (inv['paidBank'] ?? '').toString();
+            final paidProvider = (inv['paidProvider'] ?? '').toString().trim().toLowerCase();
+            final paidProviderMode =
+                (inv['paidProviderMode'] ?? '').toString().trim().toLowerCase();
+            final stripePaymentIntentId =
+                (inv['stripePaymentIntentId'] ?? '').toString().trim();
+            final paidCardBrand = (inv['paidCardBrand'] ?? '').toString().trim();
+            final paidCardLast4 = (inv['paidCardLast4'] ?? '').toString().trim();
             final receiptNo = (inv['paidReceiptNo'] ?? '').toString();
             final policyNotes = policyNotesFromInvoice(inv);
             final needsManagementReview = managementReviewRecommended(inv);
 
+            String providerLabel({required bool isPaid, BillingLatestSession? session}) {
+              final provider = isPaid
+                  ? paidProvider
+                  : (session?.provider ?? '').toString().trim().toLowerCase();
+              final providerMode = isPaid
+                  ? paidProviderMode
+                  : (session?.providerMode ?? '').toString().trim().toLowerCase();
+              if (provider == 'stripe') {
+                return providerMode == 'test' || providerMode.isEmpty
+                    ? 'Stripe Test Mode'
+                    : 'Stripe';
+              }
+              if (provider == 'dummy') {
+                return 'In-App Demo Payment';
+              }
+              if (provider.isEmpty) {
+                return '—';
+              }
+              return provider.toUpperCase();
+            }
+
+            String paymentMethodLabel({
+              required bool isPaid,
+              BillingLatestSession? session,
+            }) {
+              if (isPaid) {
+                if (paidMethod.isNotEmpty) return paidMethod;
+                if (paidProvider == 'stripe') return 'Stripe Demo';
+                return 'Online Banking';
+              }
+              if (session?.method.isNotEmpty == true) {
+                return session!.method;
+              }
+              if (session?.supportsStripeDemoFlow == true) {
+                return 'Stripe Demo';
+              }
+              return '—';
+            }
+
+            String cardOrBankLabel({
+              required bool isPaid,
+              BillingLatestSession? session,
+            }) {
+              final brand = isPaid ? paidCardBrand : (session?.cardBrand ?? '');
+              final last4 = isPaid ? paidCardLast4 : (session?.cardLast4 ?? '');
+              if (brand.isNotEmpty || last4.isNotEmpty) {
+                if (brand.isEmpty) return 'Card ending in $last4';
+                if (last4.isEmpty) return brand.toUpperCase();
+                return '${brand.toUpperCase()} ending in $last4';
+              }
+
+              if (isPaid) {
+                if (paidProvider == 'stripe') return 'Card details unavailable';
+                return paidBank.isEmpty ? 'Online Banking' : paidBank;
+              }
+
+              if (session?.bank.isNotEmpty == true) {
+                return session!.bank;
+              }
+              if (session?.supportsStripeDemoFlow == true) {
+                return 'Stripe test card';
+              }
+              return '—';
+            }
+
+            String paymentIntentLabel({
+              required bool isPaid,
+              BillingLatestSession? session,
+            }) {
+              if (isPaid) {
+                return stripePaymentIntentId.isEmpty ? '—' : stripePaymentIntentId;
+              }
+              final intentId = session?.paymentIntentId ?? '';
+              return intentId.isEmpty ? '—' : intentId;
+            }
+
             Future<void> startPayFlow() async {
-              final create =
-                  FirebaseFunctions.instanceFor(region: 'asia-southeast1')
-                      .httpsCallable('billingCreateCheckoutSession');
-              final res = await create.call({
-                'parentId': parentId,
-                'invoiceId': invoiceId,
-              });
-
-              final data = (res.data as Map?)?.cast<String, dynamic>() ??
-                  const <String, dynamic>{};
-              if (data['ok'] != true) {
-                throw Exception(data['reason'] ?? 'create-session-failed');
-              }
-
               if (!context.mounted) return;
-
-              final sessionId = (data['sessionId'] ?? '').toString();
-              final amountSen = (data['amountSen'] is int)
-                  ? data['amountSen'] as int
-                  : (data['amountSen'] is num
-                      ? (data['amountSen'] as num).toInt()
-                      : 0);
-              final currency = (data['currency'] ?? 'MYR').toString();
-              final mode = (data['mode'] ?? 'dummy').toString().toLowerCase();
-              final provider =
-                  (data['provider'] ?? 'dummy').toString().toLowerCase();
-
-              if (provider != 'dummy' || mode != 'dummy') {
-                throw Exception('This payment flow is not available right now.');
-              }
-
-              final ok = await Navigator.of(context).push<bool>(
+              await Navigator.of(context).push<void>(
                 MaterialPageRoute(
-                  builder: (_) => DemoCheckoutPage(
+                  builder: (_) => StripeDemoPaymentPage(
                     parentId: parentId,
+                    parentName: parentNameArg.isEmpty ? 'Parent' : parentNameArg,
                     invoiceId: invoiceId,
-                    sessionId: sessionId,
-                    amountSen: amountSen,
-                    currency: currency,
+                    invoiceScopeLabel: invoicePresentation.scopeLabel,
+                    amountSen: totalAmountSen,
+                    currency: 'MYR',
                   ),
                 ),
               );
-
-              if (ok == true && context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text('Payment completed successfully.')),
-                );
-              }
             }
 
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -228,8 +277,17 @@ class InvoiceDetailsPage extends StatelessWidget {
                 final statusColor = _paymentStatusColor(paymentStatus);
 
                 Future<void> resumePaymentFlow() async {
-                  if (latestSession == null ||
-                      !latestSession.supportsInAppDummyFlow) {
+                  if (latestSession == null) {
+                    await startPayFlow();
+                    return;
+                  }
+
+                  if (latestSession.supportsStripeDemoFlow) {
+                    await startPayFlow();
+                    return;
+                  }
+
+                  if (!latestSession.supportsInAppDummyFlow) {
                     await startPayFlow();
                     return;
                   }
@@ -261,13 +319,18 @@ class InvoiceDetailsPage extends StatelessWidget {
                     return;
                   }
 
-                  final sync =
-                      FirebaseFunctions.instanceFor(region: 'asia-southeast1')
-                          .httpsCallable('billingSyncCheckoutSession');
+                  final callableName = latestSession.supportsStripeDemoFlow
+                      ? 'syncStripeDemoPayment'
+                      : 'billingSyncCheckoutSession';
+                  final sync = FirebaseFunctions.instanceFor(
+                    region: 'asia-southeast1',
+                  ).httpsCallable(callableName);
                   final res = await sync.call({
                     'parentId': parentId,
                     'invoiceId': invoiceId,
                     'sessionId': latestSession.sessionId,
+                    if (latestSession.supportsStripeDemoFlow)
+                      'paymentIntentId': latestSession.paymentIntentId,
                   });
                   final data = (res.data as Map?)?.cast<String, dynamic>() ??
                       const <String, dynamic>{};
@@ -278,10 +341,33 @@ class InvoiceDetailsPage extends StatelessWidget {
                     return;
                   }
 
-                  if (data['paid'] == true || syncedStatus == 'succeeded') {
+                  if (data['paid'] == true ||
+                      syncedStatus == 'succeeded' ||
+                      syncedStatus == 'paid') {
+                    if (latestSession.supportsStripeDemoFlow) {
+                      final summary = StripeDemoPaymentSummary.fromCallableResult(
+                        data: data,
+                        parentId: parentId,
+                        parentName:
+                            parentNameArg.isEmpty ? 'Parent' : parentNameArg,
+                        invoiceId: invoiceId,
+                        invoiceScopeLabel: invoicePresentation.scopeLabel,
+                        fallbackAmountSen: totalAmountSen,
+                        fallbackCurrency: 'MYR',
+                      );
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              StripeDemoPaymentCompletedPage(summary: summary),
+                        ),
+                      );
+                      return;
+                    }
+
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                          content: Text('Payment confirmed successfully.')),
+                        content: Text('Payment confirmed successfully.'),
+                      ),
                     );
                     return;
                   }
@@ -308,7 +394,7 @@ class InvoiceDetailsPage extends StatelessWidget {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                           content: Text(
-                              'This payment session is still awaiting authorization.')),
+                                  'This payment session is still awaiting authorization.')),
                     );
                     return;
                   }
@@ -576,7 +662,7 @@ class InvoiceDetailsPage extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
-                                'Payment confirmation is handled in-app for this release. Keep this screen open until the status updates.',
+                                'Card payment is handled in-app with Stripe test mode. Use Stripe test cards only. No real money is charged.',
                                 style: TextStyle(
                                     color: textColor,
                                     fontWeight: FontWeight.w600),
@@ -586,32 +672,37 @@ class InvoiceDetailsPage extends StatelessWidget {
                           ],
                           _lineItem(
                             label: 'Payment Method',
-                            value: isPaid
-                                ? (paidMethod.isEmpty
-                                ? 'Online Banking'
-                                : paidMethod)
-                                : (latestSession?.method.isNotEmpty == true
-                                ? latestSession!.method
-                                    : '—'),
+                            value: paymentMethodLabel(
+                              isPaid: isPaid,
+                              session: latestSession,
+                            ),
                             valueColor: textColor,
                           ),
                           const SizedBox(height: 8),
                           _lineItem(
-                            label: 'Bank',
-                            value: isPaid
-                                ? (paidBank.isEmpty
-                                ? 'Online Banking'
-                                    : paidBank)
-                                : (latestSession?.bank.isNotEmpty == true
-                                    ? latestSession!.bank
-                                    : '—'),
+                            label: (isPaid ? paidProvider == 'stripe' : latestSession?.supportsStripeDemoFlow == true)
+                                ? 'Card'
+                                : 'Bank',
+                            value: cardOrBankLabel(
+                              isPaid: isPaid,
+                              session: latestSession,
+                            ),
+                            valueColor: textColor,
+                          ),
+                          const SizedBox(height: 8),
+                          _lineItem(
+                            label: 'Provider',
+                            value: providerLabel(
+                              isPaid: isPaid,
+                              session: latestSession,
+                            ),
                             valueColor: textColor,
                           ),
                           const SizedBox(height: 8),
                           _lineItem(
                             label: 'Payment Date',
                             value: isPaid && paidAt != null
-                                ? DateFormat('d MMM yyyy').format(paidAt)
+                                ? DateFormat('d MMM yyyy, h:mm a').format(paidAt)
                                 : '—',
                             valueColor: textColor,
                           ),
@@ -633,6 +724,15 @@ class InvoiceDetailsPage extends StatelessWidget {
                               valueColor: textColor,
                             ),
                           ],
+                          const SizedBox(height: 8),
+                          _lineItem(
+                            label: 'PaymentIntent ID',
+                            value: paymentIntentLabel(
+                              isPaid: isPaid,
+                              session: latestSession,
+                            ),
+                            valueColor: textColor,
+                          ),
                           if (!isPaid && latestSession?.expiresAt != null) ...[
                             const SizedBox(height: 8),
                             _lineItem(
@@ -694,13 +794,16 @@ class InvoiceDetailsPage extends StatelessWidget {
                             await handlePrimaryPaymentAction();
                           } catch (error) {
                             if (!context.mounted) return;
-                            final message = error.toString();
+                            final message = error
+                                .toString()
+                                .replaceFirst('Exception: ', '')
+                                .trim();
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(
-                                  message.contains('payment flow is not available right now')
-                                      ? 'This payment flow is not available right now.'
-                                      : 'Unable to continue the payment flow.',
+                                  message.isEmpty
+                                      ? 'Unable to continue the payment flow.'
+                                      : message,
                                 ),
                               ),
                             );

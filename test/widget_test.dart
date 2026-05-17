@@ -51,11 +51,15 @@ void main() {
         sessionState: 'processing',
         provider: 'dummy',
         mode: 'dummy',
+        providerMode: '',
         currency: 'MYR',
         amountSen: 70000,
         method: 'FPX',
         bank: 'Maybank2u',
         receiptNo: '',
+        paymentIntentId: '',
+        cardBrand: '',
+        cardLast4: '',
         expiresAt: DateTime(2026, 4, 5, 23, 59),
         createdAt: DateTime(2026, 4, 5, 10, 0),
         completedAt: null,
@@ -67,5 +71,39 @@ void main() {
     expect(status.key, 'processing');
     expect(status.action, BillingPaymentAction.sync);
     expect(status.primaryActionLabel, 'Check Payment Status');
+  });
+
+  test('pending stripe payment sheet session stays actionable', () {
+    final status = billingResolvePaymentStatus(
+      invoice: {
+        'status': 'unpaid',
+        'dueDate': DateTime(2026, 4, 7),
+      },
+      latestSession: BillingLatestSession(
+        sessionId: 'stripe-session-1',
+        status: 'pending',
+        sessionState: 'pending',
+        provider: 'stripe',
+        mode: 'payment_sheet',
+        providerMode: 'test',
+        currency: 'MYR',
+        amountSen: 70000,
+        method: 'Stripe Demo',
+        bank: '',
+        receiptNo: '',
+        paymentIntentId: 'pi_test_123',
+        cardBrand: '',
+        cardLast4: '',
+        expiresAt: null,
+        createdAt: DateTime(2026, 4, 5, 10, 0),
+        completedAt: null,
+        lastSyncedAt: null,
+      ),
+      now: DateTime(2026, 4, 5, 10, 5),
+    );
+
+    expect(status.key, 'pending');
+    expect(status.action, BillingPaymentAction.start);
+    expect(status.primaryActionLabel, 'Continue Payment');
   });
 }

@@ -23,11 +23,15 @@ class BillingLatestSession {
     required this.sessionState,
     required this.provider,
     required this.mode,
+    required this.providerMode,
     required this.currency,
     required this.amountSen,
     required this.method,
     required this.bank,
     required this.receiptNo,
+    required this.paymentIntentId,
+    required this.cardBrand,
+    required this.cardLast4,
     required this.expiresAt,
     required this.createdAt,
     required this.completedAt,
@@ -39,11 +43,15 @@ class BillingLatestSession {
   final String sessionState;
   final String provider;
   final String mode;
+  final String providerMode;
   final String currency;
   final int amountSen;
   final String method;
   final String bank;
   final String receiptNo;
+  final String paymentIntentId;
+  final String cardBrand;
+  final String cardLast4;
   final DateTime? expiresAt;
   final DateTime? createdAt;
   final DateTime? completedAt;
@@ -52,6 +60,9 @@ class BillingLatestSession {
   String get effectiveState => sessionState.isNotEmpty ? sessionState : status;
 
   bool get supportsInAppDummyFlow => provider == 'dummy' && mode == 'dummy';
+
+  bool get supportsStripeDemoFlow =>
+      provider == 'stripe' && mode == 'payment_sheet';
 
   factory BillingLatestSession.fromDocument(
     QueryDocumentSnapshot<Map<String, dynamic>> snapshot,
@@ -69,6 +80,10 @@ class BillingLatestSession {
       sessionState: _normalizedText(providerPayloadMap?['sessionState']),
       provider: _normalizedText(data['provider'], fallback: 'dummy'),
       mode: _normalizedText(data['mode'], fallback: 'dummy'),
+      providerMode: _normalizedText(
+        data['providerMode'],
+        fallback: _normalizedText(providerPayloadMap?['providerMode']),
+      ),
       currency: _text(data['currency'], fallback: 'MYR'),
       amountSen: rawAmount is int
           ? rawAmount
@@ -76,6 +91,21 @@ class BillingLatestSession {
       method: _text(data['method']),
       bank: _text(data['bank']),
       receiptNo: _text(data['providerReceiptNo']),
+      paymentIntentId: _text(
+        data['stripePaymentIntentId'],
+        fallback: _text(
+          providerPayloadMap?['paymentIntentId'],
+          fallback: _text(data['providerSessionId']),
+        ),
+      ),
+      cardBrand: _text(
+        data['cardBrand'],
+        fallback: _text(providerPayloadMap?['cardBrand']),
+      ),
+      cardLast4: _text(
+        data['cardLast4'],
+        fallback: _text(providerPayloadMap?['cardLast4']),
+      ),
       expiresAt: _dateFrom(data['expiresAt']),
       createdAt: _dateFrom(data['createdAt']),
       completedAt: _dateFrom(data['completedAt']),
@@ -202,13 +232,21 @@ BillingPaymentStatus billingResolvePaymentStatus({
         key: 'pending',
         label: 'Awaiting Payment',
         detail: expiresAt == null
-            ? 'Payment session is ready. Continue checkout to complete payment.'
+          ? (latestSession.supportsStripeDemoFlow
+            ? 'Stripe test card checkout is ready. Continue payment to finish this invoice.'
+            : 'Payment session is ready. Continue checkout to complete payment.')
             : 'Payment session is ready until ${_dateTimeLabel(expiresAt)}.',
         tone: BillingPaymentStatusTone.warning,
         action: latestSession.supportsInAppDummyFlow
-            ? BillingPaymentAction.resume
-            : BillingPaymentAction.none,
-        primaryActionLabel: latestSession.supportsInAppDummyFlow ? 'Resume Payment' : '',
+          ? BillingPaymentAction.resume
+          : (latestSession.supportsStripeDemoFlow
+            ? BillingPaymentAction.start
+            : BillingPaymentAction.none),
+        primaryActionLabel: latestSession.supportsInAppDummyFlow
+          ? 'Resume Payment'
+          : (latestSession.supportsStripeDemoFlow
+            ? 'Continue Payment'
+            : ''),
         isSettled: false,
       );
     }
