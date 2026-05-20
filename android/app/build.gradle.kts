@@ -80,6 +80,16 @@ android {
                 debugSymbolLevel = "SYMBOL_TABLE"
             }
 
+            isMinifyEnabled = false
+            isShrinkResources = false
+
+            // Stripe's optional push provisioning classes are absent in this app's shipped SDK set.
+            // Keep the release shrinker path working with targeted dontwarn rules.
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+
             // Use a real release keystore when android/key.properties exists.
             // Fall back to debug signing so local validation builds still work.
             signingConfig = if (hasReleaseKeystore) {

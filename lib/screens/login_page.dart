@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:animate_do/animate_do.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../services/otp_pin_reset_request.dart';
@@ -350,182 +349,108 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF1F8E9),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // ===== HEADER =====
-            Container(
-              height: 380,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF81C784), Color(0xFF66BB6A)],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(60),
-                  bottomRight: Radius.circular(60),
+      backgroundColor: const Color(0xFFF8FFF8),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 40),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Image.asset(
+                'assets/images/app_logo.png',
+                height: 170,
+                fit: BoxFit.contain,
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Taska Zurah Parent',
+                style: TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF2E7D32),
                 ),
               ),
-              child: Center(
-                child: FadeInDown(
-                  duration: const Duration(milliseconds: 1000),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const SizedBox(height: 80),
-                      const Text(
-                        "TASKA ZURAH",
-                        style: TextStyle(
-                          fontSize: 38,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          letterSpacing: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        "Parenting is not about perfection, it’s about connection.",
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.white.withValues(alpha: 0.9),
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              const SizedBox(height: 40),
+              _buildTextField(
+                controller: phoneController,
+                label: 'Phone Number',
+                keyboardType: TextInputType.phone,
               ),
-            ),
-
-            const SizedBox(height: 30),
-
-            // ===== LOGIN FORM =====
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 30),
-              child: FadeInUp(
-                duration: const Duration(milliseconds: 1200),
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.green.withValues(alpha: 0.15),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
+              const SizedBox(height: 15),
+              if (_otpMode) ...[
+                if (_codeSent)
+                  _buildTextField(
+                    controller: otpController,
+                    label: 'OTP (6 digits)',
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                  )
+                else
+                  const SizedBox.shrink(),
+              ] else ...[
+                _buildTextField(
+                  controller: pinController,
+                  label: 'PIN (4–6 digits)',
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  obscureText: true,
+                ),
+              ],
+              const SizedBox(height: 25),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2E7D32),
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
                   ),
-                  child: Column(
-                    children: [
-                      _buildTextField(
-                        controller: phoneController,
-                        hint: "Enter Your Number",
-                        icon: Icons.phone,
-                        keyboardType: TextInputType.phone,
-                      ),
-                      const SizedBox(height: 16),
-                      if (_otpMode && _codeSent)
-                        _buildTextField(
-                          controller: otpController,
-                          hint: "Enter 6-digit OTP",
-                          icon: Icons.sms,
-                          keyboardType: TextInputType.number,
-                          maxLength: 6,
-                          obscureText: false,
+                  onPressed: isLoading
+                      ? null
+                      : (_otpMode
+                          ? (_codeSent ? _verifyOtpAndLogin : _sendOtpForOtpLogin)
+                          : _loginWithPin),
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(color: Colors.white),
                         )
-                      else if (!_otpMode)
-                        _buildTextField(
-                          controller: pinController,
-                          hint: "Enter PIN (4–6 digits)",
-                          icon: Icons.lock_outline,
-                          keyboardType: TextInputType.number,
-                          maxLength: 6,
-                          obscureText: true,
-                        )
-                      else
-                        const SizedBox.shrink(),
-                      const SizedBox(height: 25),
-                      GestureDetector(
-                        onTap: isLoading
-                            ? null
-                            : (_otpMode
-                                ? (_codeSent
-                                    ? _verifyOtpAndLogin
-                                    : _sendOtpForOtpLogin)
-                                : _loginWithPin),
-                        child: Container(
-                          height: 55,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(15),
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF66BB6A), Color(0xFF4CAF50)],
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.green.withValues(alpha: 0.4),
-                                blurRadius: 10,
-                                offset: const Offset(0, 5),
-                              ),
-                            ],
-                          ),
-                          child: Center(
-                            child: isLoading
-                                ? const SizedBox(
-                                    height: 24,
-                                    width: 24,
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                      strokeWidth: 2.5,
-                                    ),
-                                  )
-                                : Text(
-                                    _otpMode
-                                        ? (_codeSent
-                                            ? "Verify OTP & Login"
-                                            : "Send OTP")
-                                        : "Login",
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
+                      : Text(
+                          _otpMode ? (_codeSent ? 'Verify & Login' : 'Send OTP') : 'Login',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextButton(
-                        onPressed: isLoading
-                            ? null
-                            : () {
-                                setState(() {
-                                  _otpMode = !_otpMode;
-                                  _codeSent = false;
-                                  _verificationId = null;
-                                });
-                              },
-                        child: Text(
-                          _otpMode ? 'Use PIN login' : 'Forgot PIN? Use OTP',
-                          style: const TextStyle(color: Color(0xFF2F5F4A)),
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
               ),
-            ),
-
-            const SizedBox(height: 30),
-            Text(
-              "OTP is only for first-time setup / forgot PIN",
-              style: TextStyle(color: Colors.grey[700], fontSize: 13),
-            ),
-            const SizedBox(height: 20),
-          ],
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: isLoading
+                    ? null
+                    : () {
+                        setState(() {
+                          _otpMode = !_otpMode;
+                          _codeSent = false;
+                          _verificationId = null;
+                        });
+                      },
+                child: Text(
+                  _otpMode ? 'Use PIN login' : 'Forgot PIN? Use OTP',
+                  style: const TextStyle(color: Color(0xFF2F5F4A)),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'OTP is only for first-time setup / forgot PIN',
+                style: TextStyle(color: Colors.grey[700], fontSize: 13),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -534,8 +459,7 @@ class _LoginPageState extends State<LoginPage> {
   // ===== TEXT FIELD =====
   Widget _buildTextField({
     required TextEditingController controller,
-    required String hint,
-    required IconData icon,
+    required String label,
     TextInputType keyboardType = TextInputType.text,
     int? maxLength,
     bool obscureText = false,
@@ -545,23 +469,13 @@ class _LoginPageState extends State<LoginPage> {
       keyboardType: keyboardType,
       maxLength: maxLength,
       obscureText: obscureText,
-      style: const TextStyle(fontSize: 16),
       decoration: InputDecoration(
-        counterText: "",
-        prefixIcon: Icon(icon, color: const Color(0xFF66BB6A)),
-        hintText: hint,
-        hintStyle: TextStyle(color: Colors.grey[500]),
+        labelText: label,
         filled: true,
-        fillColor: const Color(0xFFF1F8E9),
-        contentPadding:
-            const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+        fillColor: Colors.white,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(15),
           borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF66BB6A), width: 2),
         ),
       ),
     );
